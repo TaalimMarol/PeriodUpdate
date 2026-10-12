@@ -42,7 +42,7 @@
         // 🛑 CONFIGURATION REQUIRED 🛑
         // ==========================================
         
-        // 1. Paste your Google Apps Script Web App URL here:
+         // 1. Paste your Google Apps Script Web App URL here:
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwuwW7E6uBq-FNOaMSmgaMgL4gk1beLQo0rFfU493xHp3jocIHq0l6eVMzWArSfWZOE/exec";
 
         // 2. Paste your Firebase Config here (See Step 4 in the guide):
@@ -54,6 +54,8 @@
           messagingSenderId: "450007100622",
           appId: "1:450007100622:web:d6844da2186796cb02349f"
 };      // ==========================================
+
+        // ==========================================
 
         let app, auth;
         try {
@@ -68,7 +70,7 @@
         let allocations = [];
         let allRequests = [];
         let userIsAdmin = false;
-        let adminRole = ""; // "SuperAdmin" or "HOD"
+        let adminRole = ""; 
 
         // DOM Elements
         const loginView = document.getElementById('login-view');
@@ -129,18 +131,21 @@
                     adminRole = result.adminRole || '';
                     
                     if(userIsAdmin) {
-                        // Filter requests for HODs
                         allRequests = filterRequestsByAdminRole(result.requests, user.email, adminRole);
                         adminNavMenu.classList.remove('hidden');
                         
-                        // Show "Add Admin" button only if super admin
                         if(adminRole === 'SuperAdmin') {
                             document.getElementById('add-admin-btn').classList.remove('hidden');
                         }
                     }
 
-                    // Default to showing teacher view
-                    switchView('teacher');
+                    // Auto-Switch Logic: If Admin and has no classes, jump to Admin view. Otherwise, Teacher view.
+                    if (userIsAdmin && allocations.length === 0) {
+                        switchView('admin');
+                    } else {
+                        switchView('teacher');
+                    }
+
                 } else {
                     showToast(result.error || "Failed to load data.", "error");
                 }
@@ -155,7 +160,6 @@
         function filterRequestsByAdminRole(requests, email, role) {
             if (role === 'SuperAdmin') return requests;
             
-            // HOD Filtering Logic based on class numbers
             const parsedEmail = email.toLowerCase();
             return requests.filter(r => {
                 const classNum = parseInt(r['Raw Class Number']);
@@ -173,7 +177,7 @@
                 if (parsedEmail === 'collegiate_two.marol@jameasaifiyah.edu') {
                     return classNum >= 8 && classNum <= 11;
                 }
-                return true; // Fallback
+                return true; 
             });
         }
 
@@ -192,7 +196,7 @@
                 adminView.classList.remove('hidden');
                 if(navAdmin) navAdmin.classList.add('nav-active');
                 navTeacher.classList.remove('nav-active');
-                renderAdminDashboard('teacher'); // Default group by teacher
+                renderAdminDashboard('class'); // Default group by Class
             }
         };
 
@@ -201,7 +205,7 @@
         // ==========================================
         
         function formatClassName(alloc) {
-            // Converts "5", "B", "M" -> "5BM" or "4", "C", "F" -> "4CF"
+            // Combines Class, Section, Gender (e.g., 4CF or 5BM)
             const c = alloc.Class || '';
             const s = alloc.Section || '';
             const g = alloc.Gender || '';
@@ -213,7 +217,7 @@
             tbody.innerHTML = '';
             
             if (allocations.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-8 text-gray-500">No allocations found for your email.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="3" class="text-center py-8 text-gray-500">No allocations found for your email.</td></tr>`;
                 return;
             }
 
@@ -377,9 +381,12 @@
             const container = document.getElementById('admin-dashboard-content');
             container.innerHTML = '';
             
-            // Toggle active tab buttons
-            document.getElementById('tab-teacher').className = groupBy === 'teacher' ? 'px-4 py-2 bg-jamea-primary text-white rounded-md text-sm shadow-sm' : 'px-4 py-2 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300';
-            document.getElementById('tab-book').className = groupBy === 'book' ? 'px-4 py-2 bg-jamea-primary text-white rounded-md text-sm shadow-sm' : 'px-4 py-2 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300';
+            const btnClassTab = 'px-4 py-2 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300';
+            const btnClassActive = 'px-4 py-2 bg-jamea-primary text-white rounded-md text-sm shadow-sm';
+            
+            document.getElementById('tab-class').className = groupBy === 'class' ? btnClassActive : btnClassTab;
+            document.getElementById('tab-teacher').className = groupBy === 'teacher' ? btnClassActive : btnClassTab;
+            document.getElementById('tab-book').className = groupBy === 'book' ? btnClassActive : btnClassTab;
 
             if(allRequests.length === 0) {
                 container.innerHTML = `<div class="p-8 text-center text-gray-500 bg-white rounded-lg border">No pending requests found for your scope.</div>`;
@@ -388,16 +395,24 @@
 
             let grouped = {};
             allRequests.forEach(req => {
-                const key = groupBy === 'teacher' ? req['Email'] : `${req['Formatted Class']} - ${req['Book Name']}`;
+                let key;
+                if(groupBy === 'teacher') key = req['Email'];
+                else if(groupBy === 'book') key = `${req['Formatted Class']} - ${req['Book Name']}`;
+                else key = `Class ${req['Formatted Class']}`; // Group strictly by class (e.g. 5BM)
+
                 if(!grouped[key]) grouped[key] = [];
                 grouped[key].push(req);
             });
 
             for (const [key, requests] of Object.entries(grouped)) {
+                let icon = 'fa-users-class';
+                if(groupBy === 'teacher') icon = 'fa-user-tie';
+                if(groupBy === 'book') icon = 'fa-book';
+
                 let html = `
                 <div class="mb-6 bg-white border rounded-lg shadow-sm overflow-hidden">
                     <div class="bg-gray-100 px-4 py-3 border-b border-gray-200 font-semibold text-jamea-dark flex justify-between items-center">
-                        <span><i class="fa-solid ${groupBy === 'teacher' ? 'fa-user-tie' : 'fa-book'} mr-2 text-jamea-gold"></i> ${key}</span>
+                        <span><i class="fa-solid ${icon} mr-2 text-jamea-gold"></i> ${key}</span>
                         <span class="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded-full">${requests.length} Requests</span>
                     </div>
                     <div class="divide-y divide-gray-100">
@@ -408,17 +423,18 @@
                     const badgeColor = isExtra ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
                     const changeText = isExtra ? `Requested ${req['Requested Change']} Extra` : `Requested Drop ${req['Requested Change']}`;
                     
-                    // Format timestamp
                     const dateObj = new Date(req['Timestamp']);
                     const dateStr = dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+
+                    let mainLabel = '';
+                    if(groupBy === 'teacher') mainLabel = `${req['Formatted Class']} • ${req['Book Name']}`;
+                    else if(groupBy === 'book') mainLabel = req['Email'];
+                    else mainLabel = `<span class="font-bold text-jamea-primary">${req['Book Name']}</span> <span class="text-gray-400">by</span> ${req['Email']}`;
 
                     html += `
                         <div class="p-4 hover:bg-gray-50 flex flex-col md:flex-row justify-between md:items-center">
                             <div>
-                                ${groupBy === 'teacher' ? 
-                                    `<div class="font-medium text-sm text-gray-900">${req['Formatted Class']} • ${req['Book Name']}</div>` : 
-                                    `<div class="font-medium text-sm text-gray-900">${req['Email']}</div>`
-                                }
+                                <div class="font-medium text-sm text-gray-900">${mainLabel}</div>
                                 <div class="text-xs text-gray-500 mt-1">Current Periods: ${req['Current Periods']} | Reason: ${req['Reason'] || 'N/A'}</div>
                             </div>
                             <div class="mt-2 md:mt-0 flex items-center space-x-4">
@@ -608,8 +624,9 @@
                 </div>
 
                 <div class="flex space-x-2 mb-6 border-b pb-2">
-                    <button id="tab-teacher" onclick="renderAdminDashboard('teacher')" class="px-4 py-2 bg-jamea-primary text-white rounded-md text-sm shadow-sm">Group by Teacher</button>
-                    <button id="tab-book" onclick="renderAdminDashboard('book')" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300">Group by Class/Book</button>
+                    <button id="tab-class" onclick="renderAdminDashboard('class')" class="px-4 py-2 bg-jamea-primary text-white rounded-md text-sm shadow-sm">Group by Class</button>
+                    <button id="tab-teacher" onclick="renderAdminDashboard('teacher')" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300">Group by Teacher</button>
+                    <button id="tab-book" onclick="renderAdminDashboard('book')" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300">Group by Book/Class</button>
                 </div>
 
                 <div id="admin-dashboard-content">
@@ -704,4 +721,3 @@
 
 </body>
 </html>
-        
