@@ -30,6 +30,19 @@
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cda652; border-radius: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #b08d40; }
         .nav-active { border-left-width: 4px; border-color: #cda652; background-color: rgba(255,255,255,0.1); }
+        @font-face {
+    font-family: 'Alkanz';
+    src: url('alkanz.ttf') format('truetype'); /* Update extension if using .woff */
+    font-weight: normal;
+    font-style: normal;
+}
+
+/* Apply this class to any Arabic text elements */
+.arabic-text {
+    font-family: 'Alkanz', Arial, sans-serif;
+    font-size: 1.2rem;
+    direction: rtl;
+}
     </style>
 </head>
 <body class="h-screen overflow-hidden text-gray-800 flex">
@@ -512,7 +525,7 @@
             <div class="w-20 h-20 bg-jamea-primary rounded-full flex items-center justify-center mx-auto mb-6 text-jamea-gold border-2 border-jamea-gold">
                 <i class="fa-solid fa-book-open text-3xl"></i>
             </div>
-            <h1 class="text-3xl font-bold text-gray-800 mb-2 font-serif" style="color: #5a1324;">Faculty Portal</h1>
+            <h1 class="text-3xl font-bold text-gray-800 mb-2 font-serif" style="color: #5a1324;">HESAS BADAL </h1>
             <p class="text-gray-500 mb-8">Periods Allocation & Modification System</p>
             
             <button onclick="handleGoogleLogin()" class="w-full flex items-center justify-center space-x-3 bg-white border border-gray-300 text-gray-700 px-4 py-3 rounded-md hover:bg-gray-50 hover:shadow-md transition-all font-medium">
@@ -530,12 +543,31 @@
     <!-- MAIN APP SCREEN -->
     <div id="app-view" class="hidden w-full h-full flex flex-col md:flex-row bg-[#f5f5f5]">
         <!-- Sidebar -->
+        @media (max-width: 768px) {
+    .sidebar {
+        position: fixed;
+        top: 0;
+        left: -100%; /* Hides off-screen by default */
+        height: 100vh;
+        z-index: 1000;
+        transition: left 0.3s ease-in-out;
+    }
+    
+    .sidebar.active {
+        left: 0; /* Slides in when active class is toggled */
+    }
+
+    .main-content {
+        margin-left: 0;
+        width: 100%;
+    }
+}
         <aside class="w-full md:w-64 bg-jamea-sidebar text-white flex flex-col shadow-xl z-20">
             <div class="h-16 flex items-center px-4 bg-jamea-dark border-b border-white/10">
                 <div class="w-8 h-8 rounded bg-white/10 flex items-center justify-center mr-3">
                     <i class="fa-solid fa-university text-jamea-gold"></i>
                 </div>
-                <div class="font-bold text-sm tracking-wider">FACULTY PORTAL</div>
+                <div class="font-bold text-sm tracking-wider">HESAS BADAL</div>
             </div>
             
             <div class="p-4 bg-jamea-primary/50 mb-2">
@@ -601,6 +633,18 @@
                             <table class="min-w-full divide-y divide-gray-200 text-left">
                                 <thead class="bg-gray-50">
                                     <tr>
+                                        <td>${row.ClassFormat}</td>
+    <td class="arabic-text">${row.SubjectAR}</td> <!-- Arabic Subject moved here -->
+    <td>${row.BookName}</td>
+    <td>
+        <div class="weekly-periods">${row.WeeklyPeriods}</div>
+        <div class="action-buttons">
+            <a href="#" onclick="openModifyModal('${row.BookName}')">[Modify]</a>
+            <a href="#" onclick="openGiveOffModal('${row.BookName}')">[Give Off]</a>
+        </div>
+    </td>
+</tr>
+`;
                                         <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider w-32">Class & Sec</th>
                                         <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider">Book Name</th>
                                         <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider text-center w-40">Weekly Periods</th>
