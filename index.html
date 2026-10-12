@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Periods Allocation Portal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'], },
+                    colors: {
+                        jamea: {
+                            dark: '#5a1324',
+                            primary: '#7a1f3d',
+                            light: '#8f294a',
+                            gold: '#cda652',
+                            bg: '#fcfaf5',
+                            sidebar: '#721b36'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cda652; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #b08d40; }
+    </style>
+</head>
+<body class="h-screen overflow-hidden text-gray-800 flex">
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+
+        // ==========================================
+        // 🛑 IMPORTANT CONFIGURATION REQUIRED HERE 🛑
+        // ==========================================
+        
+        // 1. Paste your Google Apps Script Web App URL here:
+        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwuwW7E6uBq-FNOaMSmgaMgL4gk1beLQo0rFfU493xHp3jocIHq0l6eVMzWArSfWZOE/exec";
+
+        // 2. Paste your Firebase Config here (See Step 4 in the guide):
+        const firebaseConfig = {
+          apiKey: "AIzaSyBDFR4mjRNwLCBqIBWtXNvZDA4xYbKZmUA",
+          authDomain: "faculty-portal-auth.firebaseapp.com",
+          projectId: "faculty-portal-auth",
+          storageBucket: "faculty-portal-auth.firebasestorage.app",
+          messagingSenderId: "450007100622",
+          appId: "1:450007100622:web:d6844da2186796cb02349f"
+};      // ==========================================
+
+        let app, auth;
+        try {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+        } catch(e) {
+            console.error("Firebase init error. Did you add your config?", e);
+        }
+
+        // State variables
+        let currentUser = null;
+        let allocations = [];
+
+        // DOM Elements
+        const loginView = document.getElementById('login-view');
+        const appView = document.getElementById('app-view');
+        const userNameDisplay = document.getElementById('user-name-display');
+        const userEmailDisplay = document.getElementById('user-email-display');
+        const allocationsTableBody = document.getElementById('allocations-table-body');
+        const toastContainer = document.getElementById('toast-container');
+        const loadingOverlay = document.getElementById('loading-overlay');
+
+        const provider = new GoogleAuthProvider();
+        
+        window.handleGoogleLogin = () => {
+            showLoading(true, "Signing in...");
+            signInWithPopup(auth, provider).catch((error) => {
+                showToast("Login failed: " + error.message, "error");
+                showLoading(false);
+            });
+        };
+
+        window.handleLogout = () => {
+            signOut(auth).catch((error) => console.error(error));
+        };
+
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                currentUser = user;
+                loginView.classList.add('hidden');
+                appView.classList.remove('hidden');
+                appView.classList.add('flex');
+                
+                userNameDisplay.textContent = user.displayName || 'Teacher';
+                userEmailDisplay.textContent = user.email;
+                
+                loadAllocations(user);
+            } else {
+                currentUser = null;
+                loginView.classList.remove('hidden');
+                appView.classList.add('hidden');
+                appView.classList.remove('flex');
+                showLoading(false);
+            }
+        });
+
+        async function loadAllocations(user) {
+            if (!user) return;
+            showLoading(true, "Fetching your allocations from Google Sheets...");
+            
+            try {
+                const response = await fetch(`${GAS_WEB_APP_URL}?email=${encodeURIComponent(user.email)}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    allocations = result.data;
+                    renderAllocationsTable();
+                } else {
+                    showToast(result.error || "Failed to load data.", "error");
+                    allocationsTableBody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-red-500">Error loading data.</td></tr>`;
+                }
+            } catch (error) {
+                console.error("Fetch error:", error);
+                showToast("Could not connect to the database.", "error");
+                allocationsTableBody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-red-500">Network Error. Check console.</td></tr>`;
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function renderAllocationsTable() {
+            allocationsTableBody.innerHTML = '';
+            
+            if (allocations.length === 0) {
+                allocationsTableBody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-gray-500">No allocations found for your email (${currentUser.email}).</td></tr>`;
+                return;
+            }
+
+            allocations.forEach(alloc => {
+                const tr = document.createElement('tr');
+                tr.className = "border-b border-gray-200 hover:bg-gray-50 transition-colors";
+                
+                // Keep the JSON property names matching your exact Google Sheet headers
+                tr.innerHTML = `
+                    <td class="py-3 px-4 text-sm whitespace-nowrap">${alloc.Class || '-'} - ${alloc.Section || '-'} (${alloc.Gender || '-'})</td>
+                    <td class="py-3 px-4 text-sm font-medium text-gray-900">
+                        ${alloc.Subject || '-'} <br>
+                        <span class="text-xs text-gray-500" dir="rtl" style="font-family: Arial, sans-serif;">${alloc['Subject AR'] || ''}</span>
+                    </td>
+                    <td class="py-3 px-4 text-sm text-gray-600">
+                        ${alloc.BookName || '-'} <br>
+                        <span class="text-xs text-gray-400" dir="rtl" style="font-family: Arial, sans-serif;">${alloc['BookName AR'] || ''}</span>
+                    </td>
+                    <td class="py-3 px-4 text-sm text-center">
+                        <span class="bg-gray-100 px-2 py-1 rounded font-mono">${alloc.TotalPeriodsPerWeek || '0'}</span>
+                    </td>
+                    <td class="py-3 px-4 text-sm text-center">${alloc.Type || 'Regular'}</td>
+                    <td class="py-3 px-4 text-xs text-gray-500 max-w-[150px] truncate" title="${alloc['Khidmatguzar/Department'] || ''}">
+                        ${alloc['Khidmatguzar/Department'] || '-'}
+                    </td>
+                    <td class="py-3 px-4">
+                        <div class="flex flex-col space-y-2 lg:flex-row lg:space-y-0 lg:space-x-2">
+                            <button onclick="openActionModal('${alloc.id}', 'partial')" class="px-3 py-1 bg-white border border-jamea-primary text-jamea-primary rounded hover:bg-jamea-primary hover:text-white transition-colors text-xs font-medium">Modify</button>
+                            <button onclick="handleFullRelease('${alloc.id}')" class="px-3 py-1 bg-jamea-primary text-white rounded hover:bg-jamea-dark transition-colors text-xs font-medium">Give Off</button>
+                        </div>
+                    </td>
+                `;
+                allocationsTableBody.appendChild(tr);
+            });
+        }
+
+        async function submitRequestToGAS(data) {
+            if (!currentUser) return;
+            showLoading(true, "Submitting to Google Sheets...");
+            
+            try {
+                const response = await fetch(GAS_WEB_APP_URL, {
+                    method: 'POST',
+                    body: JSON.stringify(data),
+                    headers: {
+                        'Content-Type': 'text/plain;charset=utf-8', // Plain text prevents CORS preflight issues
+                    }
+                });
+                
+                const result = await response.json();
+                if(result.success) {
+                    showToast("Request submitted successfully!", "success");
+                } else {
+                    showToast("Error: " + result.error, "error");
+                }
+            } catch (error) {
+                console.error("Submission error:", error);
+                showToast("Failed to submit request.", "error");
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        window.handleFullRelease = async (allocationId) => {
+            const alloc = allocations.find(a => a.id === allocationId);
+            if(confirm(`Are you sure you want to request to fully give off the ${alloc.Subject} class?`)) {
+                await submitRequestToGAS({
+                    email: currentUser.email,
+                    type: 'release',
+                    requestAction: 'full_release',
+                    details: alloc,
+                    currentTotal: alloc.TotalPeriodsPerWeek
+                });
+            }
+        };
+
+        window.submitPartialRelease = async () => {
+            const allocId = document.getElementById('modal-alloc-id').value;
+            const dropCount = parseInt(document.getElementById('periods-to-drop').value);
+            const alloc = allocations.find(a => a.id === allocId);
+            
+            if (isNaN(dropCount) || dropCount <= 0 || dropCount >= alloc.TotalPeriodsPerWeek) {
+                showToast(`Please enter a valid number between 1 and ${alloc.TotalPeriodsPerWeek - 1}`, "error");
+                return;
+            }
+
+            await submitRequestToGAS({
+                email: currentUser.email,
+                type: 'release',
+                requestAction: 'partial_release',
+                periodsToDrop: dropCount,
+                currentTotal: alloc.TotalPeriodsPerWeek,
+                details: alloc
+            });
+            
+            closeActionModal();
+        };
+
+        window.submitExtraPeriodsRequest = async () => {
+            const selectEl = document.getElementById('extra-subject-select');
+            const selectedText = selectEl.options[selectEl.selectedIndex].text;
+            const allocationId = selectEl.value;
+            const periods = document.getElementById('extra-periods').value;
+            const reason = document.getElementById('extra-reason').value;
+            
+            if(!allocationId || !periods) {
+                showToast("Please select a subject and enter the number of periods.", "error");
+                return;
+            }
+
+            const alloc = allocations.find(a => a.id === allocationId);
+
+            await submitRequestToGAS({
+                email: currentUser.email,
+                type: 'extra',
+                requestAction: 'add_periods',
+                requestedSubject: selectedText,
+                requestedPeriods: periods,
+                reason: reason,
+                currentTotal: alloc.TotalPeriodsPerWeek,
+                details: alloc 
+            });
+            
+            closeExtraPeriodsModal();
+            document.getElementById('extra-request-form').reset();
+        };
+
+        window.openActionModal = (allocationId) => {
+            const alloc = allocations.find(a => a.id === allocationId);
+            document.getElementById('modal-alloc-id').value = allocationId;
+            document.getElementById('modal-subject-name').textContent = `${alloc.Class} - ${alloc.Subject}`;
+            document.getElementById('modal-current-periods').textContent = alloc.TotalPeriodsPerWeek;
+            
+            const input = document.getElementById('periods-to-drop');
+            input.max = alloc.TotalPeriodsPerWeek - 1;
+            input.value = 1;
+
+            const modal = document.getElementById('action-modal');
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.children[0].classList.remove('opacity-0');
+                modal.children[1].classList.remove('scale-95', 'opacity-0');
+            }, 10);
+        };
+
+        window.closeActionModal = () => {
+            const modal = document.getElementById('action-modal');
+            modal.children[0].classList.add('opacity-0');
+            modal.children[1].classList.add('scale-95', 'opacity-0');
+            setTimeout(() => modal.classList.add('hidden'), 200);
+        };
+
+        window.openExtraPeriodsModal = () => {
+            const selectEl = document.getElementById('extra-subject-select');
+            selectEl.innerHTML = '<option value="">Select an allocated subject...</option>';
+            
+            allocations.forEach(alloc => {
+                const option = document.createElement('option');
+                option.value = alloc.id;
+                option.textContent = `${alloc.Subject} (${alloc.BookName}) - Class ${alloc.Class} ${alloc.Section}`;
+                selectEl.appendChild(option);
+            });
+
+            const modal = document.getElementById('extra-periods-modal');
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.children[0].classList.remove('opacity-0');
+                modal.children[1].classList.remove('scale-95', 'opacity-0');
+            }, 10);
+        };
+
+        window.closeExtraPeriodsModal = () => {
+            const modal = document.getElementById('extra-periods-modal');
+            modal.children[0].classList.add('opacity-0');
+            modal.children[1].classList.add('scale-95', 'opacity-0');
+            setTimeout(() => modal.classList.add('hidden'), 200);
+        };
+
+        function showToast(message, type = "info") {
+            const toast = document.createElement('div');
+            const bgColor = type === 'error' ? 'bg-red-500' : type === 'success' ? 'bg-green-500' : 'bg-blue-500';
+            toast.className = `${bgColor} text-white px-6 py-3 rounded shadow-lg mb-3 transform transition-all duration-300 translate-y-10 opacity-0`;
+            toast.textContent = message;
+            toastContainer.appendChild(toast);
+            setTimeout(() => toast.classList.remove('translate-y-10', 'opacity-0'), 10);
+            setTimeout(() => {
+                toast.classList.add('opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function showLoading(show, text = "Loading...") {
+            if (show) {
+                loadingOverlay.classList.remove('hidden');
+                document.getElementById('loading-text').textContent = text;
+            } else {
+                loadingOverlay.classList.add('hidden');
+            }
+        }
+    </script>
+
+    <div id="login-view" class="w-full h-full flex flex-col items-center justify-center bg-jamea-bg relative">
+        <div class="absolute top-0 left-0 w-full h-2 bg-jamea-gold"></div>
+        <div class="absolute bottom-0 w-full h-32 bg-jamea-primary opacity-5 rounded-t-full -mb-16"></div>
+        
+        <div class="bg-white p-10 rounded-xl shadow-2xl z-10 max-w-md w-full text-center border-t-4 border-jamea-primary">
+            <div class="w-20 h-20 bg-jamea-primary rounded-full flex items-center justify-center mx-auto mb-6 text-jamea-gold border-2 border-jamea-gold">
+                <i class="fa-solid fa-book-open text-3xl"></i>
+            </div>
+            <h1 class="text-3xl font-bold text-gray-800 mb-2 font-serif" style="color: #5a1324;">Faculty Portal</h1>
+            <p class="text-gray-500 mb-8">Periods Allocation & Modification System</p>
+            
+            <button onclick="handleGoogleLogin()" class="w-full flex items-center justify-center space-x-3 bg-white border border-gray-300 text-gray-700 px-4 py-3 rounded-md hover:bg-gray-50 hover:shadow-md transition-all font-medium">
+                <svg class="w-5 h-5" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                </svg>
+                <span>Sign in with Google</span>
+            </button>
+            <p class="mt-4 text-xs text-gray-400">Secure login requires your official faculty email.</p>
+        </div>
+    </div>
+
+    <div id="app-view" class="hidden w-full h-full flex flex-col md:flex-row bg-[#f5f5f5]">
+        <!-- Sidebar -->
+        <aside class="w-full md:w-64 bg-jamea-sidebar text-white flex flex-col shadow-xl z-20">
+            <div class="h-16 flex items-center px-4 bg-jamea-dark border-b border-white/10">
+                <div class="w-8 h-8 rounded bg-white/10 flex items-center justify-center mr-3">
+                    <i class="fa-solid fa-university text-jamea-gold"></i>
+                </div>
+                <div class="font-bold text-sm tracking-wider">FACULTY PORTAL</div>
+            </div>
+            
+            <div class="p-4 bg-jamea-primary/50 mb-2">
+                <div class="flex items-center space-x-3 mb-3">
+                    <div class="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-lg">
+                        <i class="fa-solid fa-user"></i>
+                    </div>
+                    <div class="overflow-hidden">
+                        <div id="user-name-display" class="font-semibold text-sm truncate">Teacher Name</div>
+                        <div id="user-email-display" class="text-xs text-white/60 truncate">email@example.com</div>
+                    </div>
+                </div>
+                <div class="text-[10px] uppercase tracking-wider text-jamea-gold font-bold">Current Section</div>
+                <div class="font-semibold text-sm">Periods Allocation</div>
+            </div>
+
+            <nav class="flex-1 px-2 py-4 space-y-1">
+                <a href="#" class="flex items-center space-x-3 px-3 py-2 bg-white/10 text-white rounded-md border-l-4 border-jamea-gold">
+                    <i class="fa-solid fa-list-check w-5 text-center"></i>
+                    <span class="text-sm font-medium">My Allocations</span>
+                </a>
+                <a href="#" onclick="openExtraPeriodsModal()" class="flex items-center space-x-3 px-3 py-2 text-white/70 hover:bg-white/5 hover:text-white rounded-md transition-colors">
+                    <i class="fa-solid fa-plus-circle w-5 text-center"></i>
+                    <span class="text-sm font-medium">Request Extra Periods</span>
+                </a>
+            </nav>
+            
+            <div class="p-4 border-t border-white/10">
+                <button onclick="handleLogout()" class="flex items-center space-x-2 text-white/70 hover:text-white transition-colors text-sm w-full">
+                    <i class="fa-solid fa-sign-out-alt"></i>
+                    <span>Log Out</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 flex flex-col h-full overflow-hidden">
+            <header class="h-16 bg-jamea-primary text-white flex items-center justify-between px-6 shadow-md relative z-10">
+                <div class="flex items-center space-x-6">
+                    <div class="flex items-center space-x-2 hover:text-jamea-gold cursor-pointer transition-colors">
+                        <i class="fa-solid fa-house text-sm"></i>
+                        <span class="text-sm font-medium">HOME</span>
+                    </div>
+                    <div class="flex items-center space-x-2 text-white/80">
+                        <i class="fa-solid fa-grip text-sm"></i>
+                        <span class="text-sm font-medium">MODULES</span>
+                    </div>
+                </div>
+                
+                <div class="flex-1 max-w-xl mx-8 relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i class="fa-solid fa-search text-white/50 text-sm"></i>
+                    </div>
+                    <input type="text" class="block w-full pl-10 pr-3 py-1.5 border border-white/20 rounded-md leading-5 bg-black/10 text-white placeholder-white/50 focus:outline-none focus:bg-white/20 sm:text-sm" placeholder="Search menus, pages...">
+                </div>
+            </header>
+
+            <div class="flex-1 overflow-auto custom-scrollbar p-6">
+                <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                    <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                        <h2 class="text-lg font-semibold text-[#1e3a8a] flex items-center">
+                            <i class="fa-solid fa-align-left mr-2"></i> Current Allocations
+                        </h2>
+                        <button onclick="openExtraPeriodsModal()" class="text-sm bg-jamea-gold text-white px-3 py-1.5 rounded hover:bg-[#b08d40] transition-colors shadow-sm font-medium">
+                            + Request Extra Periods
+                        </button>
+                    </div>
+                    
+                    <div class="p-6">
+                        <div class="overflow-x-auto border rounded-lg">
+                            <table class="min-w-full divide-y divide-gray-200 text-left">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider">Class & Sec</th>
+                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider">Subject</th>
+                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider">Book</th>
+                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider text-center">Periods/Wk</th>
+                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider text-center">Type</th>
+                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider">Dept</th>
+                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="allocations-table-body" class="bg-white divide-y divide-gray-200">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Action Modal -->
+    <div id="action-modal" class="fixed inset-0 z-50 flex items-center justify-center hidden">
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity opacity-0" onclick="closeActionModal()"></div>
+        <div class="bg-white rounded-lg shadow-2xl z-10 w-full max-w-md mx-4 overflow-hidden transform scale-95 opacity-0 transition-all duration-200">
+            <div class="px-6 py-4 bg-jamea-primary text-white border-b flex justify-between items-center">
+                <h3 class="font-semibold text-lg">Modify Periods</h3>
+                <button onclick="closeActionModal()" class="text-white/70 hover:text-white"><i class="fa-solid fa-times"></i></button>
+            </div>
+            <div class="p-6">
+                <input type="hidden" id="modal-alloc-id">
+                <div class="mb-4">
+                    <p class="text-sm text-gray-500 mb-1">Subject</p>
+                    <p id="modal-subject-name" class="font-medium text-gray-800 bg-gray-50 p-2 rounded border"></p>
+                </div>
+                <div class="flex justify-between items-center mb-6 bg-blue-50 p-3 rounded text-sm text-blue-800">
+                    <span>Current Weekly Periods:</span>
+                    <span id="modal-current-periods" class="font-bold text-lg"></span>
+                </div>
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">How many periods do you want to give off?</label>
+                    <div class="flex items-center space-x-3">
+                        <input type="number" id="periods-to-drop" min="1" class="border border-gray-300 rounded-md px-3 py-2 w-24 text-center">
+                        <span class="text-sm text-gray-500">periods/week</span>
+                    </div>
+                </div>
+                <div class="flex justify-end space-x-3">
+                    <button onclick="closeActionModal()" class="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md">Cancel</button>
+                    <button onclick="submitPartialRelease()" class="px-4 py-2 bg-jamea-primary text-white rounded-md hover:bg-jamea-dark shadow-sm">Submit Request</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Extra Periods Modal -->
+    <div id="extra-periods-modal" class="fixed inset-0 z-50 flex items-center justify-center hidden">
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity opacity-0" onclick="closeExtraPeriodsModal()"></div>
+        <div class="bg-white rounded-lg shadow-2xl z-10 w-full max-w-md mx-4 overflow-hidden transform scale-95 opacity-0 transition-all duration-200 border-t-4 border-jamea-gold">
+            <div class="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
+                <h3 class="font-semibold text-lg text-gray-800">Request Extra Periods</h3>
+                <button onclick="closeExtraPeriodsModal()" class="text-gray-400 hover:text-gray-700"><i class="fa-solid fa-times"></i></button>
+            </div>
+            <div class="p-6">
+                <form id="extra-request-form" onsubmit="event.preventDefault(); submitExtraPeriodsRequest();">
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Select Assigned Subject</label>
+                        <select id="extra-subject-select" required class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-jamea-gold bg-white"></select>
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Extra Periods Needed</label>
+                        <input type="number" id="extra-periods" min="1" required class="w-full border border-gray-300 rounded-md px-3 py-2">
+                    </div>
+                    <div class="mb-6">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+                        <textarea id="extra-reason" rows="3" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"></textarea>
+                    </div>
+                    <div class="flex justify-end space-x-3">
+                        <button type="button" onclick="closeExtraPeriodsModal()" class="px-4 py-2 text-gray-600 bg-gray-100 rounded-md">Cancel</button>
+                        <button type="submit" class="px-4 py-2 bg-jamea-gold text-white rounded-md hover:bg-[#b08d40]">Submit Request</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- UI Elements -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col items-end pointer-events-none"></div>
+    <div id="loading-overlay" class="fixed inset-0 bg-white/80 backdrop-blur-sm z-[100] flex flex-col items-center justify-center hidden">
+        <div class="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-jamea-primary mb-4"></div>
+        <p id="loading-text" class="text-gray-600 font-medium">Loading...</p>
+    </div>
+
+</body>
+</html>
