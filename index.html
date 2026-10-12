@@ -15,12 +15,8 @@
                     fontFamily: { sans: ['Inter', 'sans-serif'], },
                     colors: {
                         jamea: {
-                            dark: '#5a1324',
-                            primary: '#7a1f3d',
-                            light: '#8f294a',
-                            gold: '#cda652',
-                            bg: '#fcfaf5',
-                            sidebar: '#721b36'
+                            dark: '#5a1324', primary: '#7a1f3d', light: '#8f294a',
+                            gold: '#cda652', bg: '#fcfaf5', sidebar: '#721b36'
                         }
                     }
                 }
@@ -33,6 +29,7 @@
         .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cda652; border-radius: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #b08d40; }
+        .nav-active { border-left-width: 4px; border-color: #cda652; background-color: rgba(255,255,255,0.1); }
     </style>
 </head>
 <body class="h-screen overflow-hidden text-gray-800 flex">
@@ -42,7 +39,7 @@
         import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
         // ==========================================
-        // 🛑 IMPORTANT CONFIGURATION REQUIRED HERE 🛑
+        // 🛑 CONFIGURATION REQUIRED 🛑
         // ==========================================
         
         // 1. Paste your Google Apps Script Web App URL here:
@@ -63,19 +60,26 @@
             app = initializeApp(firebaseConfig);
             auth = getAuth(app);
         } catch(e) {
-            console.error("Firebase init error. Did you add your config?", e);
+            console.error("Firebase init error", e);
         }
 
         // State variables
         let currentUser = null;
         let allocations = [];
+        let allRequests = [];
+        let userIsAdmin = false;
+        let adminRole = ""; // "SuperAdmin" or "HOD"
 
         // DOM Elements
         const loginView = document.getElementById('login-view');
         const appView = document.getElementById('app-view');
         const userNameDisplay = document.getElementById('user-name-display');
         const userEmailDisplay = document.getElementById('user-email-display');
-        const allocationsTableBody = document.getElementById('allocations-table-body');
+        
+        const teacherView = document.getElementById('teacher-view');
+        const adminView = document.getElementById('admin-view');
+        const adminNavMenu = document.getElementById('admin-nav-menu');
+        
         const toastContainer = document.getElementById('toast-container');
         const loadingOverlay = document.getElementById('loading-overlay');
 
@@ -100,10 +104,10 @@
                 appView.classList.remove('hidden');
                 appView.classList.add('flex');
                 
-                userNameDisplay.textContent = user.displayName || 'Teacher';
+                userNameDisplay.textContent = user.displayName || 'Faculty Member';
                 userEmailDisplay.textContent = user.email;
                 
-                loadAllocations(user);
+                fetchDashboardData(user);
             } else {
                 currentUser = null;
                 loginView.classList.remove('hidden');
@@ -113,87 +117,148 @@
             }
         });
 
-        async function loadAllocations(user) {
-            if (!user) return;
-            showLoading(true, "Fetching your allocations from Google Sheets...");
-            
+        async function fetchDashboardData(user) {
+            showLoading(true, "Loading your profile and data...");
             try {
                 const response = await fetch(`${GAS_WEB_APP_URL}?email=${encodeURIComponent(user.email)}`);
                 const result = await response.json();
                 
                 if (result.success) {
-                    allocations = result.data;
-                    renderAllocationsTable();
+                    allocations = result.allocations;
+                    userIsAdmin = result.isAdmin;
+                    adminRole = result.adminRole || '';
+                    
+                    if(userIsAdmin) {
+                        // Filter requests for HODs
+                        allRequests = filterRequestsByAdminRole(result.requests, user.email, adminRole);
+                        adminNavMenu.classList.remove('hidden');
+                        
+                        // Show "Add Admin" button only if super admin
+                        if(adminRole === 'SuperAdmin') {
+                            document.getElementById('add-admin-btn').classList.remove('hidden');
+                        }
+                    }
+
+                    // Default to showing teacher view
+                    switchView('teacher');
                 } else {
                     showToast(result.error || "Failed to load data.", "error");
-                    allocationsTableBody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-red-500">Error loading data.</td></tr>`;
                 }
             } catch (error) {
                 console.error("Fetch error:", error);
                 showToast("Could not connect to the database.", "error");
-                allocationsTableBody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-red-500">Network Error. Check console.</td></tr>`;
             } finally {
                 showLoading(false);
             }
         }
 
-        function renderAllocationsTable() {
-            allocationsTableBody.innerHTML = '';
+        function filterRequestsByAdminRole(requests, email, role) {
+            if (role === 'SuperAdmin') return requests;
+            
+            // HOD Filtering Logic based on class numbers
+            const parsedEmail = email.toLowerCase();
+            return requests.filter(r => {
+                const classNum = parseInt(r['Raw Class Number']);
+                const gender = r['Raw Gender'];
+                
+                if (parsedEmail === 'culture_generale_a.marol@jameasaifiyah.edu') {
+                    return classNum === 1 || classNum === 2 || (classNum === 3 && gender === 'F');
+                }
+                if (parsedEmail === 'culture_generale_b.marol@jameasaifiyah.edu') {
+                    return classNum === 4 || (classNum === 3 && gender === 'M');
+                }
+                if (parsedEmail === 'collegiate_one.marol@jameasaifiyah.edu') {
+                    return classNum >= 5 && classNum <= 7;
+                }
+                if (parsedEmail === 'collegiate_two.marol@jameasaifiyah.edu') {
+                    return classNum >= 8 && classNum <= 11;
+                }
+                return true; // Fallback
+            });
+        }
+
+        window.switchView = (viewName) => {
+            const navTeacher = document.getElementById('nav-teacher');
+            const navAdmin = document.getElementById('nav-admin');
+
+            if (viewName === 'teacher') {
+                teacherView.classList.remove('hidden');
+                adminView.classList.add('hidden');
+                navTeacher.classList.add('nav-active');
+                if(navAdmin) navAdmin.classList.remove('nav-active');
+                renderTeacherTable();
+            } else if (viewName === 'admin' && userIsAdmin) {
+                teacherView.classList.add('hidden');
+                adminView.classList.remove('hidden');
+                if(navAdmin) navAdmin.classList.add('nav-active');
+                navTeacher.classList.remove('nav-active');
+                renderAdminDashboard('teacher'); // Default group by teacher
+            }
+        };
+
+        // ==========================================
+        // TEACHER VIEW LOGIC
+        // ==========================================
+        
+        function formatClassName(alloc) {
+            // Converts "5", "B", "M" -> "5BM" or "4", "C", "F" -> "4CF"
+            const c = alloc.Class || '';
+            const s = alloc.Section || '';
+            const g = alloc.Gender || '';
+            return `${c}${s}${g}`.trim();
+        }
+
+        function renderTeacherTable() {
+            const tbody = document.getElementById('allocations-table-body');
+            tbody.innerHTML = '';
             
             if (allocations.length === 0) {
-                allocationsTableBody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-gray-500">No allocations found for your email (${currentUser.email}).</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-8 text-gray-500">No allocations found for your email.</td></tr>`;
                 return;
             }
 
             allocations.forEach(alloc => {
+                const combinedClassName = formatClassName(alloc);
+                const bookTitle = alloc.BookName || '-';
+                const bookTitleAr = alloc['BookName AR'] || '';
+                const periods = alloc.TotalPeriodsPerWeek || '0';
+
                 const tr = document.createElement('tr');
                 tr.className = "border-b border-gray-200 hover:bg-gray-50 transition-colors";
                 
-                // Keep the JSON property names matching your exact Google Sheet headers
                 tr.innerHTML = `
-                    <td class="py-3 px-4 text-sm whitespace-nowrap">${alloc.Class || '-'} - ${alloc.Section || '-'} (${alloc.Gender || '-'})</td>
-                    <td class="py-3 px-4 text-sm font-medium text-gray-900">
-                        ${alloc.Subject || '-'} <br>
-                        <span class="text-xs text-gray-500" dir="rtl" style="font-family: Arial, sans-serif;">${alloc['Subject AR'] || ''}</span>
+                    <td class="py-4 px-4 text-sm font-semibold whitespace-nowrap text-jamea-primary">${combinedClassName}</td>
+                    <td class="py-4 px-4 text-sm text-gray-800">
+                        <div class="font-medium">${bookTitle}</div>
+                        <div class="text-xs text-gray-500 mt-1" dir="rtl" style="font-family: Arial, sans-serif;">${bookTitleAr}</div>
                     </td>
-                    <td class="py-3 px-4 text-sm text-gray-600">
-                        ${alloc.BookName || '-'} <br>
-                        <span class="text-xs text-gray-400" dir="rtl" style="font-family: Arial, sans-serif;">${alloc['BookName AR'] || ''}</span>
-                    </td>
-                    <td class="py-3 px-4 text-sm text-center">
-                        <span class="bg-gray-100 px-2 py-1 rounded font-mono">${alloc.TotalPeriodsPerWeek || '0'}</span>
-                    </td>
-                    <td class="py-3 px-4 text-sm text-center">${alloc.Type || 'Regular'}</td>
-                    <td class="py-3 px-4 text-xs text-gray-500 max-w-[150px] truncate" title="${alloc['Khidmatguzar/Department'] || ''}">
-                        ${alloc['Khidmatguzar/Department'] || '-'}
-                    </td>
-                    <td class="py-3 px-4">
-                        <div class="flex flex-col space-y-2 lg:flex-row lg:space-y-0 lg:space-x-2">
-                            <button onclick="openActionModal('${alloc.id}', 'partial')" class="px-3 py-1 bg-white border border-jamea-primary text-jamea-primary rounded hover:bg-jamea-primary hover:text-white transition-colors text-xs font-medium">Modify</button>
-                            <button onclick="handleFullRelease('${alloc.id}')" class="px-3 py-1 bg-jamea-primary text-white rounded hover:bg-jamea-dark transition-colors text-xs font-medium">Give Off</button>
+                    <td class="py-4 px-4 align-middle">
+                        <div class="flex flex-col items-center justify-center w-24">
+                            <span class="bg-gray-100 border border-gray-200 text-gray-800 px-3 py-1 rounded-md font-mono text-lg font-bold shadow-sm">${periods}</span>
+                            <div class="flex space-x-3 mt-2">
+                                <button onclick="openActionModal('${alloc.id}')" class="text-[11px] text-blue-600 hover:text-blue-800 font-medium underline transition-colors">Modify</button>
+                                <button onclick="handleFullRelease('${alloc.id}')" class="text-[11px] text-red-600 hover:text-red-800 font-medium underline transition-colors">Give Off</button>
+                            </div>
                         </div>
                     </td>
                 `;
-                allocationsTableBody.appendChild(tr);
+                tbody.appendChild(tr);
             });
         }
 
         async function submitRequestToGAS(data) {
-            if (!currentUser) return;
-            showLoading(true, "Submitting to Google Sheets...");
-            
+            showLoading(true, "Submitting request...");
             try {
                 const response = await fetch(GAS_WEB_APP_URL, {
                     method: 'POST',
                     body: JSON.stringify(data),
-                    headers: {
-                        'Content-Type': 'text/plain;charset=utf-8', // Plain text prevents CORS preflight issues
-                    }
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' }
                 });
-                
                 const result = await response.json();
                 if(result.success) {
                     showToast("Request submitted successfully!", "success");
+                    closeActionModal();
+                    closeExtraPeriodsModal();
                 } else {
                     showToast("Error: " + result.error, "error");
                 }
@@ -207,13 +272,18 @@
 
         window.handleFullRelease = async (allocationId) => {
             const alloc = allocations.find(a => a.id === allocationId);
-            if(confirm(`Are you sure you want to request to fully give off the ${alloc.Subject} class?`)) {
+            const className = formatClassName(alloc);
+            
+            if(confirm(`Are you sure you want to completely give off ${className} - ${alloc.BookName}?`)) {
                 await submitRequestToGAS({
                     email: currentUser.email,
                     type: 'release',
                     requestAction: 'full_release',
-                    details: alloc,
-                    currentTotal: alloc.TotalPeriodsPerWeek
+                    className: className,
+                    bookName: alloc.BookName,
+                    currentTotal: alloc.TotalPeriodsPerWeek,
+                    classNum: alloc.Class,
+                    gender: alloc.Gender
                 });
             }
         };
@@ -222,9 +292,10 @@
             const allocId = document.getElementById('modal-alloc-id').value;
             const dropCount = parseInt(document.getElementById('periods-to-drop').value);
             const alloc = allocations.find(a => a.id === allocId);
+            const className = formatClassName(alloc);
             
             if (isNaN(dropCount) || dropCount <= 0 || dropCount >= alloc.TotalPeriodsPerWeek) {
-                showToast(`Please enter a valid number between 1 and ${alloc.TotalPeriodsPerWeek - 1}`, "error");
+                showToast(`Enter a number between 1 and ${alloc.TotalPeriodsPerWeek - 1}`, "error");
                 return;
             }
 
@@ -233,46 +304,46 @@
                 type: 'release',
                 requestAction: 'partial_release',
                 periodsToDrop: dropCount,
+                className: className,
+                bookName: alloc.BookName,
                 currentTotal: alloc.TotalPeriodsPerWeek,
-                details: alloc
+                classNum: alloc.Class,
+                gender: alloc.Gender
             });
-            
-            closeActionModal();
         };
 
         window.submitExtraPeriodsRequest = async () => {
             const selectEl = document.getElementById('extra-subject-select');
-            const selectedText = selectEl.options[selectEl.selectedIndex].text;
             const allocationId = selectEl.value;
             const periods = document.getElementById('extra-periods').value;
             const reason = document.getElementById('extra-reason').value;
             
             if(!allocationId || !periods) {
-                showToast("Please select a subject and enter the number of periods.", "error");
+                showToast("Please select a subject and enter the periods.", "error");
                 return;
             }
 
             const alloc = allocations.find(a => a.id === allocationId);
+            const className = formatClassName(alloc);
 
             await submitRequestToGAS({
                 email: currentUser.email,
                 type: 'extra',
                 requestAction: 'add_periods',
-                requestedSubject: selectedText,
                 requestedPeriods: periods,
                 reason: reason,
+                className: className,
+                bookName: alloc.BookName,
                 currentTotal: alloc.TotalPeriodsPerWeek,
-                details: alloc 
+                classNum: alloc.Class,
+                gender: alloc.Gender
             });
-            
-            closeExtraPeriodsModal();
-            document.getElementById('extra-request-form').reset();
         };
 
         window.openActionModal = (allocationId) => {
             const alloc = allocations.find(a => a.id === allocationId);
             document.getElementById('modal-alloc-id').value = allocationId;
-            document.getElementById('modal-subject-name').textContent = `${alloc.Class} - ${alloc.Subject}`;
+            document.getElementById('modal-subject-name').textContent = `${formatClassName(alloc)} - ${alloc.BookName}`;
             document.getElementById('modal-current-periods').textContent = alloc.TotalPeriodsPerWeek;
             
             const input = document.getElementById('periods-to-drop');
@@ -281,45 +352,121 @@
 
             const modal = document.getElementById('action-modal');
             modal.classList.remove('hidden');
-            setTimeout(() => {
-                modal.children[0].classList.remove('opacity-0');
-                modal.children[1].classList.remove('scale-95', 'opacity-0');
-            }, 10);
         };
-
-        window.closeActionModal = () => {
-            const modal = document.getElementById('action-modal');
-            modal.children[0].classList.add('opacity-0');
-            modal.children[1].classList.add('scale-95', 'opacity-0');
-            setTimeout(() => modal.classList.add('hidden'), 200);
-        };
+        window.closeActionModal = () => document.getElementById('action-modal').classList.add('hidden');
 
         window.openExtraPeriodsModal = () => {
             const selectEl = document.getElementById('extra-subject-select');
-            selectEl.innerHTML = '<option value="">Select an allocated subject...</option>';
-            
+            selectEl.innerHTML = '<option value="">Select an allocated book...</option>';
             allocations.forEach(alloc => {
                 const option = document.createElement('option');
                 option.value = alloc.id;
-                option.textContent = `${alloc.Subject} (${alloc.BookName}) - Class ${alloc.Class} ${alloc.Section}`;
+                option.textContent = `${formatClassName(alloc)} - ${alloc.BookName}`;
                 selectEl.appendChild(option);
             });
+            document.getElementById('extra-periods-modal').classList.remove('hidden');
+        };
+        window.closeExtraPeriodsModal = () => document.getElementById('extra-periods-modal').classList.add('hidden');
 
-            const modal = document.getElementById('extra-periods-modal');
-            modal.classList.remove('hidden');
-            setTimeout(() => {
-                modal.children[0].classList.remove('opacity-0');
-                modal.children[1].classList.remove('scale-95', 'opacity-0');
-            }, 10);
+
+        // ==========================================
+        // ADMIN DASHBOARD LOGIC
+        // ==========================================
+        
+        window.renderAdminDashboard = (groupBy) => {
+            const container = document.getElementById('admin-dashboard-content');
+            container.innerHTML = '';
+            
+            // Toggle active tab buttons
+            document.getElementById('tab-teacher').className = groupBy === 'teacher' ? 'px-4 py-2 bg-jamea-primary text-white rounded-md text-sm shadow-sm' : 'px-4 py-2 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300';
+            document.getElementById('tab-book').className = groupBy === 'book' ? 'px-4 py-2 bg-jamea-primary text-white rounded-md text-sm shadow-sm' : 'px-4 py-2 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300';
+
+            if(allRequests.length === 0) {
+                container.innerHTML = `<div class="p-8 text-center text-gray-500 bg-white rounded-lg border">No pending requests found for your scope.</div>`;
+                return;
+            }
+
+            let grouped = {};
+            allRequests.forEach(req => {
+                const key = groupBy === 'teacher' ? req['Email'] : `${req['Formatted Class']} - ${req['Book Name']}`;
+                if(!grouped[key]) grouped[key] = [];
+                grouped[key].push(req);
+            });
+
+            for (const [key, requests] of Object.entries(grouped)) {
+                let html = `
+                <div class="mb-6 bg-white border rounded-lg shadow-sm overflow-hidden">
+                    <div class="bg-gray-100 px-4 py-3 border-b border-gray-200 font-semibold text-jamea-dark flex justify-between items-center">
+                        <span><i class="fa-solid ${groupBy === 'teacher' ? 'fa-user-tie' : 'fa-book'} mr-2 text-jamea-gold"></i> ${key}</span>
+                        <span class="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded-full">${requests.length} Requests</span>
+                    </div>
+                    <div class="divide-y divide-gray-100">
+                `;
+                
+                requests.forEach(req => {
+                    const isExtra = req['Request Type'] === 'extra';
+                    const badgeColor = isExtra ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
+                    const changeText = isExtra ? `Requested ${req['Requested Change']} Extra` : `Requested Drop ${req['Requested Change']}`;
+                    
+                    // Format timestamp
+                    const dateObj = new Date(req['Timestamp']);
+                    const dateStr = dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+
+                    html += `
+                        <div class="p-4 hover:bg-gray-50 flex flex-col md:flex-row justify-between md:items-center">
+                            <div>
+                                ${groupBy === 'teacher' ? 
+                                    `<div class="font-medium text-sm text-gray-900">${req['Formatted Class']} • ${req['Book Name']}</div>` : 
+                                    `<div class="font-medium text-sm text-gray-900">${req['Email']}</div>`
+                                }
+                                <div class="text-xs text-gray-500 mt-1">Current Periods: ${req['Current Periods']} | Reason: ${req['Reason'] || 'N/A'}</div>
+                            </div>
+                            <div class="mt-2 md:mt-0 flex items-center space-x-4">
+                                <span class="text-xs text-gray-400"><i class="fa-regular fa-clock mr-1"></i>${dateStr}</span>
+                                <span class="px-2 py-1 rounded text-xs font-semibold ${badgeColor}">${changeText}</span>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += `</div></div>`;
+                container.innerHTML += html;
+            }
         };
 
-        window.closeExtraPeriodsModal = () => {
-            const modal = document.getElementById('extra-periods-modal');
-            modal.children[0].classList.add('opacity-0');
-            modal.children[1].classList.add('scale-95', 'opacity-0');
-            setTimeout(() => modal.classList.add('hidden'), 200);
+        window.openAddAdminModal = () => document.getElementById('add-admin-modal').classList.remove('hidden');
+        window.closeAddAdminModal = () => document.getElementById('add-admin-modal').classList.add('hidden');
+        
+        window.submitNewAdmin = async () => {
+            const email = document.getElementById('new-admin-email').value;
+            if(!email) return;
+            
+            showLoading(true, "Adding admin...");
+            try {
+                const response = await fetch(GAS_WEB_APP_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'add_admin', newAdminEmail: email }),
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+                });
+                const result = await response.json();
+                if(result.success) {
+                    showToast("Admin added successfully!", "success");
+                    closeAddAdminModal();
+                    document.getElementById('new-admin-email').value = '';
+                } else {
+                    showToast("Error adding admin.", "error");
+                }
+            } catch (e) {
+                showToast("Network error.", "error");
+            } finally {
+                showLoading(false);
+            }
         };
 
+
+        // ==========================================
+        // UI HELPERS
+        // ==========================================
         function showToast(message, type = "info") {
             const toast = document.createElement('div');
             const bgColor = type === 'error' ? 'bg-red-500' : type === 'success' ? 'bg-green-500' : 'bg-blue-500';
@@ -327,10 +474,7 @@
             toast.textContent = message;
             toastContainer.appendChild(toast);
             setTimeout(() => toast.classList.remove('translate-y-10', 'opacity-0'), 10);
-            setTimeout(() => {
-                toast.classList.add('opacity-0');
-                setTimeout(() => toast.remove(), 300);
-            }, 3000);
+            setTimeout(() => { toast.classList.add('opacity-0'); setTimeout(() => toast.remove(), 300); }, 3000);
         }
 
         function showLoading(show, text = "Loading...") {
@@ -343,6 +487,7 @@
         }
     </script>
 
+    <!-- LOGIN SCREEN -->
     <div id="login-view" class="w-full h-full flex flex-col items-center justify-center bg-jamea-bg relative">
         <div class="absolute top-0 left-0 w-full h-2 bg-jamea-gold"></div>
         <div class="absolute bottom-0 w-full h-32 bg-jamea-primary opacity-5 rounded-t-full -mb-16"></div>
@@ -363,10 +508,10 @@
                 </svg>
                 <span>Sign in with Google</span>
             </button>
-            <p class="mt-4 text-xs text-gray-400">Secure login requires your official faculty email.</p>
         </div>
     </div>
 
+    <!-- MAIN APP SCREEN -->
     <div id="app-view" class="hidden w-full h-full flex flex-col md:flex-row bg-[#f5f5f5]">
         <!-- Sidebar -->
         <aside class="w-full md:w-64 bg-jamea-sidebar text-white flex flex-col shadow-xl z-20">
@@ -383,23 +528,26 @@
                         <i class="fa-solid fa-user"></i>
                     </div>
                     <div class="overflow-hidden">
-                        <div id="user-name-display" class="font-semibold text-sm truncate">Teacher Name</div>
+                        <div id="user-name-display" class="font-semibold text-sm truncate">User Name</div>
                         <div id="user-email-display" class="text-xs text-white/60 truncate">email@example.com</div>
                     </div>
                 </div>
-                <div class="text-[10px] uppercase tracking-wider text-jamea-gold font-bold">Current Section</div>
-                <div class="font-semibold text-sm">Periods Allocation</div>
             </div>
 
             <nav class="flex-1 px-2 py-4 space-y-1">
-                <a href="#" class="flex items-center space-x-3 px-3 py-2 bg-white/10 text-white rounded-md border-l-4 border-jamea-gold">
+                <a href="#" id="nav-teacher" onclick="switchView('teacher')" class="flex items-center space-x-3 px-3 py-2 text-white rounded-md transition-colors nav-active">
                     <i class="fa-solid fa-list-check w-5 text-center"></i>
                     <span class="text-sm font-medium">My Allocations</span>
                 </a>
-                <a href="#" onclick="openExtraPeriodsModal()" class="flex items-center space-x-3 px-3 py-2 text-white/70 hover:bg-white/5 hover:text-white rounded-md transition-colors">
-                    <i class="fa-solid fa-plus-circle w-5 text-center"></i>
-                    <span class="text-sm font-medium">Request Extra Periods</span>
-                </a>
+                
+                <!-- Hidden by default, shown if Admin -->
+                <div id="admin-nav-menu" class="hidden mt-6">
+                    <div class="text-[10px] uppercase tracking-wider text-jamea-gold font-bold px-3 mb-2 mt-4">Administration</div>
+                    <a href="#" id="nav-admin" onclick="switchView('admin')" class="flex items-center space-x-3 px-3 py-2 text-white/70 hover:bg-white/5 hover:text-white rounded-md transition-colors">
+                        <i class="fa-solid fa-chart-bar w-5 text-center"></i>
+                        <span class="text-sm font-medium">Requests Dashboard</span>
+                    </a>
+                </div>
             </nav>
             
             <div class="p-4 border-t border-white/10">
@@ -414,29 +562,18 @@
         <main class="flex-1 flex flex-col h-full overflow-hidden">
             <header class="h-16 bg-jamea-primary text-white flex items-center justify-between px-6 shadow-md relative z-10">
                 <div class="flex items-center space-x-6">
-                    <div class="flex items-center space-x-2 hover:text-jamea-gold cursor-pointer transition-colors">
-                        <i class="fa-solid fa-house text-sm"></i>
-                        <span class="text-sm font-medium">HOME</span>
-                    </div>
                     <div class="flex items-center space-x-2 text-white/80">
-                        <i class="fa-solid fa-grip text-sm"></i>
-                        <span class="text-sm font-medium">MODULES</span>
+                        <i class="fa-solid fa-house text-sm"></i><span class="text-sm font-medium">HOME</span>
                     </div>
-                </div>
-                
-                <div class="flex-1 max-w-xl mx-8 relative">
-                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <i class="fa-solid fa-search text-white/50 text-sm"></i>
-                    </div>
-                    <input type="text" class="block w-full pl-10 pr-3 py-1.5 border border-white/20 rounded-md leading-5 bg-black/10 text-white placeholder-white/50 focus:outline-none focus:bg-white/20 sm:text-sm" placeholder="Search menus, pages...">
                 </div>
             </header>
 
-            <div class="flex-1 overflow-auto custom-scrollbar p-6">
+            <!-- TEACHER VIEW (My Allocations) -->
+            <div id="teacher-view" class="flex-1 overflow-auto custom-scrollbar p-6">
                 <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                     <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
                         <h2 class="text-lg font-semibold text-[#1e3a8a] flex items-center">
-                            <i class="fa-solid fa-align-left mr-2"></i> Current Allocations
+                            <i class="fa-solid fa-book-open mr-2"></i> Current Allocations
                         </h2>
                         <button onclick="openExtraPeriodsModal()" class="text-sm bg-jamea-gold text-white px-3 py-1.5 rounded hover:bg-[#b08d40] transition-colors shadow-sm font-medium">
                             + Request Extra Periods
@@ -448,13 +585,9 @@
                             <table class="min-w-full divide-y divide-gray-200 text-left">
                                 <thead class="bg-gray-50">
                                     <tr>
-                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider">Class & Sec</th>
-                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider">Subject</th>
-                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider">Book</th>
-                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider text-center">Periods/Wk</th>
-                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider text-center">Type</th>
-                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider">Dept</th>
-                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider">Actions</th>
+                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider w-32">Class & Sec</th>
+                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider">Book Name</th>
+                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider text-center w-40">Weekly Periods</th>
                                     </tr>
                                 </thead>
                                 <tbody id="allocations-table-body" class="bg-white divide-y divide-gray-200">
@@ -464,21 +597,40 @@
                     </div>
                 </div>
             </div>
+
+            <!-- ADMIN VIEW (Dashboard) -->
+            <div id="admin-view" class="hidden flex-1 overflow-auto custom-scrollbar p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800">Requests Dashboard</h2>
+                    <button id="add-admin-btn" onclick="openAddAdminModal()" class="hidden text-sm border border-jamea-primary text-jamea-primary px-3 py-1.5 rounded hover:bg-jamea-primary hover:text-white transition-colors shadow-sm font-medium">
+                        + Manage Admins
+                    </button>
+                </div>
+
+                <div class="flex space-x-2 mb-6 border-b pb-2">
+                    <button id="tab-teacher" onclick="renderAdminDashboard('teacher')" class="px-4 py-2 bg-jamea-primary text-white rounded-md text-sm shadow-sm">Group by Teacher</button>
+                    <button id="tab-book" onclick="renderAdminDashboard('book')" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300">Group by Class/Book</button>
+                </div>
+
+                <div id="admin-dashboard-content">
+                    <!-- Injected by JS -->
+                </div>
+            </div>
+
         </main>
     </div>
 
-    <!-- Action Modal -->
-    <div id="action-modal" class="fixed inset-0 z-50 flex items-center justify-center hidden">
-        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity opacity-0" onclick="closeActionModal()"></div>
-        <div class="bg-white rounded-lg shadow-2xl z-10 w-full max-w-md mx-4 overflow-hidden transform scale-95 opacity-0 transition-all duration-200">
-            <div class="px-6 py-4 bg-jamea-primary text-white border-b flex justify-between items-center">
+    <!-- Modals (Modify, Extra Periods, Add Admin) -->
+    <div id="action-modal" class="fixed inset-0 z-50 flex items-center justify-center hidden bg-black/50 backdrop-blur-sm">
+        <div class="bg-white rounded-lg shadow-2xl z-10 w-full max-w-md mx-4 overflow-hidden">
+            <div class="px-6 py-4 bg-jamea-primary text-white flex justify-between">
                 <h3 class="font-semibold text-lg">Modify Periods</h3>
-                <button onclick="closeActionModal()" class="text-white/70 hover:text-white"><i class="fa-solid fa-times"></i></button>
+                <button onclick="closeActionModal()"><i class="fa-solid fa-times"></i></button>
             </div>
             <div class="p-6">
                 <input type="hidden" id="modal-alloc-id">
                 <div class="mb-4">
-                    <p class="text-sm text-gray-500 mb-1">Subject</p>
+                    <p class="text-sm text-gray-500 mb-1">Class & Book</p>
                     <p id="modal-subject-name" class="font-medium text-gray-800 bg-gray-50 p-2 rounded border"></p>
                 </div>
                 <div class="flex justify-between items-center mb-6 bg-blue-50 p-3 rounded text-sm text-blue-800">
@@ -486,57 +638,70 @@
                     <span id="modal-current-periods" class="font-bold text-lg"></span>
                 </div>
                 <div class="mb-6">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">How many periods do you want to give off?</label>
-                    <div class="flex items-center space-x-3">
-                        <input type="number" id="periods-to-drop" min="1" class="border border-gray-300 rounded-md px-3 py-2 w-24 text-center">
-                        <span class="text-sm text-gray-500">periods/week</span>
-                    </div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Periods to give off:</label>
+                    <input type="number" id="periods-to-drop" min="1" class="border border-gray-300 rounded-md px-3 py-2 w-24 text-center">
                 </div>
                 <div class="flex justify-end space-x-3">
-                    <button onclick="closeActionModal()" class="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md">Cancel</button>
-                    <button onclick="submitPartialRelease()" class="px-4 py-2 bg-jamea-primary text-white rounded-md hover:bg-jamea-dark shadow-sm">Submit Request</button>
+                    <button onclick="closeActionModal()" class="px-4 py-2 bg-gray-100 rounded-md">Cancel</button>
+                    <button onclick="submitPartialRelease()" class="px-4 py-2 bg-jamea-primary text-white rounded-md">Submit Request</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Extra Periods Modal -->
-    <div id="extra-periods-modal" class="fixed inset-0 z-50 flex items-center justify-center hidden">
-        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity opacity-0" onclick="closeExtraPeriodsModal()"></div>
-        <div class="bg-white rounded-lg shadow-2xl z-10 w-full max-w-md mx-4 overflow-hidden transform scale-95 opacity-0 transition-all duration-200 border-t-4 border-jamea-gold">
+    <div id="extra-periods-modal" class="fixed inset-0 z-50 flex items-center justify-center hidden bg-black/50 backdrop-blur-sm">
+        <div class="bg-white rounded-lg shadow-2xl z-10 w-full max-w-md mx-4 overflow-hidden border-t-4 border-jamea-gold">
             <div class="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
                 <h3 class="font-semibold text-lg text-gray-800">Request Extra Periods</h3>
-                <button onclick="closeExtraPeriodsModal()" class="text-gray-400 hover:text-gray-700"><i class="fa-solid fa-times"></i></button>
+                <button onclick="closeExtraPeriodsModal()"><i class="fa-solid fa-times"></i></button>
             </div>
             <div class="p-6">
-                <form id="extra-request-form" onsubmit="event.preventDefault(); submitExtraPeriodsRequest();">
-                    <div class="mb-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Select Assigned Subject</label>
-                        <select id="extra-subject-select" required class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-jamea-gold bg-white"></select>
-                    </div>
-                    <div class="mb-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Extra Periods Needed</label>
-                        <input type="number" id="extra-periods" min="1" required class="w-full border border-gray-300 rounded-md px-3 py-2">
-                    </div>
-                    <div class="mb-6">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Reason</label>
-                        <textarea id="extra-reason" rows="3" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"></textarea>
-                    </div>
-                    <div class="flex justify-end space-x-3">
-                        <button type="button" onclick="closeExtraPeriodsModal()" class="px-4 py-2 text-gray-600 bg-gray-100 rounded-md">Cancel</button>
-                        <button type="submit" class="px-4 py-2 bg-jamea-gold text-white rounded-md hover:bg-[#b08d40]">Submit Request</button>
-                    </div>
-                </form>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-1">Select Book</label>
+                    <select id="extra-subject-select" class="w-full border rounded-md px-3 py-2 bg-white"></select>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-1">Extra Periods</label>
+                    <input type="number" id="extra-periods" min="1" class="w-full border rounded-md px-3 py-2">
+                </div>
+                <div class="mb-6">
+                    <label class="block text-sm font-medium mb-1">Reason</label>
+                    <textarea id="extra-reason" rows="2" class="w-full border rounded-md px-3 py-2 text-sm"></textarea>
+                </div>
+                <div class="flex justify-end space-x-3">
+                    <button onclick="closeExtraPeriodsModal()" class="px-4 py-2 bg-gray-100 rounded-md">Cancel</button>
+                    <button onclick="submitExtraPeriodsRequest()" class="px-4 py-2 bg-jamea-gold text-white rounded-md">Submit</button>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- UI Elements -->
+    <div id="add-admin-modal" class="fixed inset-0 z-50 flex items-center justify-center hidden bg-black/50 backdrop-blur-sm">
+        <div class="bg-white rounded-lg shadow-2xl z-10 w-full max-w-md mx-4 overflow-hidden">
+            <div class="px-6 py-4 bg-gray-800 text-white flex justify-between">
+                <h3 class="font-semibold text-lg">Add Super Admin</h3>
+                <button onclick="closeAddAdminModal()"><i class="fa-solid fa-times"></i></button>
+            </div>
+            <div class="p-6">
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">New Admin Email Address:</label>
+                    <input type="email" id="new-admin-email" class="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="email@jameasaifiyah.edu">
+                </div>
+                <div class="flex justify-end space-x-3">
+                    <button onclick="closeAddAdminModal()" class="px-4 py-2 bg-gray-100 rounded-md">Cancel</button>
+                    <button onclick="submitNewAdmin()" class="px-4 py-2 bg-gray-800 text-white rounded-md">Add Admin</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- UTILS -->
     <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col items-end pointer-events-none"></div>
     <div id="loading-overlay" class="fixed inset-0 bg-white/80 backdrop-blur-sm z-[100] flex flex-col items-center justify-center hidden">
         <div class="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-jamea-primary mb-4"></div>
-        <p id="loading-text" class="text-gray-600 font-medium">Loading...</p>
+        <p id="loading-text" class="text-gray-600 font-medium tracking-wide">Loading...</p>
     </div>
 
 </body>
 </html>
+        
