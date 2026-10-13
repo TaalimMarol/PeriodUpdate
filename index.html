@@ -7,7 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
+
     <script>
         tailwind.config = {
             theme: {
@@ -31,18 +31,40 @@
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #b08d40; }
         .nav-active { border-left-width: 4px; border-color: #cda652; background-color: rgba(255,255,255,0.1); }
         @font-face {
-    font-family: 'Alkanz';
-    src: url('alkanz.ttf') format('truetype'); /* Update extension if using .woff */
-    font-weight: normal;
-    font-style: normal;
-}
-
-/* Apply this class to any Arabic text elements */
-.arabic-text {
-    font-family: 'Alkanz', Arial, sans-serif;
-    font-size: 1.2rem;
-    direction: rtl;
-}
+            font-family: 'Alkanz';
+            src: url('alkanz.ttf') format('truetype');
+            font-weight: normal;
+            font-style: normal;
+        }
+        .arabic-text {
+            font-family: 'Alkanz', Arial, sans-serif;
+            font-size: 1.2rem;
+            direction: rtl;
+        }
+        .mobile-menu-btn {
+            display: none;
+            background: none;
+            border: none;
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
+            margin-right: 15px;
+        }
+        @media (max-width: 768px) {
+            .mobile-menu-btn { display: inline-block; }
+            .sidebar {
+                position: fixed;
+                top: 0;
+                left: -250px;
+                width: 250px;
+                height: 100vh;
+                z-index: 1000;
+                transition: left 0.3s ease-in-out;
+                box-shadow: 2px 0 5px rgba(0,0,0,0.5);
+            }
+            .sidebar.active { left: 0; }
+            .main-content { margin-left: 0; width: 100%; }
+        }
     </style>
 </head>
 <body class="h-screen overflow-hidden text-gray-800 flex">
@@ -51,14 +73,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
-        // ==========================================
-        // 🛑 CONFIGURATION REQUIRED 🛑
-        // ==========================================
-        
-         // 1. Paste your Google Apps Script Web App URL here:
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwuwW7E6uBq-FNOaMSmgaMgL4gk1beLQo0rFfU493xHp3jocIHq0l6eVMzWArSfWZOE/exec";
-
-        // 2. Paste your Firebase Config here (See Step 4 in the guide):
         const firebaseConfig = {
           apiKey: "AIzaSyBDFR4mjRNwLCBqIBWtXNvZDA4xYbKZmUA",
           authDomain: "faculty-portal-auth.firebaseapp.com",
@@ -66,9 +81,7 @@
           storageBucket: "faculty-portal-auth.firebasestorage.app",
           messagingSenderId: "450007100622",
           appId: "1:450007100622:web:d6844da2186796cb02349f"
-};      // ==========================================
-
-        // ==========================================
+        };
 
         let app, auth;
         try {
@@ -78,32 +91,145 @@
             console.error("Firebase init error", e);
         }
 
-        // State variables
         let currentUser = null;
         let allocations = [];
         let allRequests = [];
         let userIsAdmin = false;
-        let adminRole = ""; 
+        let adminRole = "";
 
-        // DOM Elements
         const loginView = document.getElementById('login-view');
         const appView = document.getElementById('app-view');
         const userNameDisplay = document.getElementById('user-name-display');
         const userEmailDisplay = document.getElementById('user-email-display');
-        
         const teacherView = document.getElementById('teacher-view');
         const adminView = document.getElementById('admin-view');
         const adminNavMenu = document.getElementById('admin-nav-menu');
-        
         const toastContainer = document.getElementById('toast-container');
         const loadingOverlay = document.getElementById('loading-overlay');
 
         const provider = new GoogleAuthProvider();
-        
+        const isMobile = () => window.matchMedia('(max-width: 768px)').matches;
+        const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
+
+        function closeSidebarOnMobile() {
+            const sidebar = document.querySelector('.sidebar');
+            if (sidebar && isMobile()) sidebar.classList.remove('active');
+        }
+
+        function focusFirstInput(containerId) {
+            setTimeout(() => {
+                const container = document.getElementById(containerId);
+                if (!container) return;
+                const focusable = container.querySelector('input, select, textarea, button');
+                if (focusable) focusable.focus();
+            }, 50);
+        }
+
+        async function callGAS(payload) {
+            if (!currentUser) throw new Error('No authenticated user.');
+            const idToken = await currentUser.getIdToken(true);
+            const response = await fetch(GAS_WEB_APP_URL, {
+                method: 'POST',
+                body: JSON.stringify({ ...payload, idToken }),
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+            });
+            return await response.json();
+        }
+
+        function getSubjectAr(alloc) {
+            return alloc['Subject AR'] || alloc['SubjectAR'] || alloc['Book Name AR'] || alloc['BookName AR'] || '';
+        }
+
+        function getBookNameAr(alloc) {
+            return alloc['Book Name AR'] || alloc['BookName AR'] || alloc['Book AR'] || '';
+        }
+
+        function formatClassName(alloc) {
+            const c = alloc.Class || '';
+            const s = alloc.Section || '';
+            const g = alloc.Gender || '';
+            return `${c}${s}${g}`.trim();
+        }
+
+        function filterRequestsByAdminRole(requests, email, role) {
+            if (role === 'SuperAdmin') return requests;
+            const parsedEmail = String(email || '').toLowerCase();
+            return requests.filter(r => {
+                const classNum = parseInt(r['Raw Class Number'], 10);
+                const gender = r['Raw Gender'];
+                if (parsedEmail === 'culture_generale_a.marol@jameasaifiyah.edu') {
+                    return classNum === 1 || classNum === 2 || (classNum === 3 && gender === 'F');
+                }
+                if (parsedEmail === 'culture_generale_b.marol@jameasaifiyah.edu') {
+                    return classNum === 4 || (classNum === 3 && gender === 'M');
+                }
+                if (parsedEmail === 'collegiate_one.marol@jameasaifiyah.edu') {
+                    return classNum >= 5 && classNum <= 7;
+                }
+                if (parsedEmail === 'collegiate_two.marol@jameasaifiyah.edu') {
+                    return classNum >= 8 && classNum <= 11;
+                }
+                return true;
+            });
+        }
+
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            const bgColor = type === 'error' ? 'bg-red-500' : type === 'success' ? 'bg-green-500' : 'bg-blue-500';
+            toast.className = `${bgColor} text-white px-6 py-3 rounded shadow-lg mb-3 transform transition-all duration-300 translate-y-10 opacity-0`;
+            toast.textContent = message;
+            toastContainer.appendChild(toast);
+            setTimeout(() => toast.classList.remove('translate-y-10', 'opacity-0'), 10);
+            setTimeout(() => { toast.classList.add('opacity-0'); setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+
+        function showLoading(show, text = 'Loading...') {
+            if (show) {
+                loadingOverlay.classList.remove('hidden');
+                document.getElementById('loading-text').textContent = text;
+            } else {
+                loadingOverlay.classList.add('hidden');
+            }
+        }
+
+        function closeSidebarIfMobile() {
+            const sidebar = document.querySelector('.sidebar');
+            if (sidebar && isMobile()) sidebar.classList.remove('active');
+        }
+
+        async function fetchDashboardData() {
+            showLoading(true, 'Loading your profile and data...');
+            try {
+                const result = await callGAS({ action: 'init' });
+                if (result.success) {
+                    allocations = Array.isArray(result.allocations) ? result.allocations : [];
+                    userIsAdmin = !!result.isAdmin;
+                    adminRole = result.adminRole || '';
+                    if (userIsAdmin) {
+                        allRequests = filterRequestsByAdminRole(result.requests || [], currentUser.email, adminRole);
+                        adminNavMenu.classList.remove('hidden');
+                        const addAdminBtn = document.getElementById('add-admin-btn');
+                        if (adminRole === 'SuperAdmin' && addAdminBtn) addAdminBtn.classList.remove('hidden');
+                    } else {
+                        adminNavMenu.classList.add('hidden');
+                    }
+                    if (userIsAdmin && allocations.length === 0) switchView('admin');
+                    else switchView('teacher');
+                } else {
+                    showToast(result.error || 'Failed to load data.', 'error');
+                }
+            } catch (error) {
+                console.error('Fetch error:', error);
+                showToast('Could not connect to the database.', 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
         window.handleGoogleLogin = () => {
-            showLoading(true, "Signing in...");
+            showLoading(true, 'Signing in...');
             signInWithPopup(auth, provider).catch((error) => {
-                showToast("Login failed: " + error.message, "error");
+                showToast('Login failed: ' + error.message, 'error');
                 showLoading(false);
             });
         };
@@ -118,11 +244,9 @@
                 loginView.classList.add('hidden');
                 appView.classList.remove('hidden');
                 appView.classList.add('flex');
-                
                 userNameDisplay.textContent = user.displayName || 'Faculty Member';
                 userEmailDisplay.textContent = user.email;
-                
-                fetchDashboardData(user);
+                fetchDashboardData();
             } else {
                 currentUser = null;
                 loginView.classList.remove('hidden');
@@ -132,130 +256,48 @@
             }
         });
 
-        async function fetchDashboardData(user) {
-            showLoading(true, "Loading your profile and data...");
-            try {
-                const response = await fetch(`${GAS_WEB_APP_URL}?email=${encodeURIComponent(user.email)}`);
-                const result = await response.json();
-                
-                if (result.success) {
-                    allocations = result.allocations;
-                    userIsAdmin = result.isAdmin;
-                    adminRole = result.adminRole || '';
-                    
-                    if(userIsAdmin) {
-                        allRequests = filterRequestsByAdminRole(result.requests, user.email, adminRole);
-                        adminNavMenu.classList.remove('hidden');
-                        
-                        if(adminRole === 'SuperAdmin') {
-                            document.getElementById('add-admin-btn').classList.remove('hidden');
-                        }
-                    }
-
-                    // Auto-Switch Logic: If Admin and has no classes, jump to Admin view. Otherwise, Teacher view.
-                    if (userIsAdmin && allocations.length === 0) {
-                        switchView('admin');
-                    } else {
-                        switchView('teacher');
-                    }
-
-                } else {
-                    showToast(result.error || "Failed to load data.", "error");
-                }
-            } catch (error) {
-                console.error("Fetch error:", error);
-                showToast("Could not connect to the database.", "error");
-            } finally {
-                showLoading(false);
-            }
-        }
-
-        function filterRequestsByAdminRole(requests, email, role) {
-            if (role === 'SuperAdmin') return requests;
-            
-            const parsedEmail = email.toLowerCase();
-            return requests.filter(r => {
-                const classNum = parseInt(r['Raw Class Number']);
-                const gender = r['Raw Gender'];
-                
-                if (parsedEmail === 'culture_generale_a.marol@jameasaifiyah.edu') {
-                    return classNum === 1 || classNum === 2 || (classNum === 3 && gender === 'F');
-                }
-                if (parsedEmail === 'culture_generale_b.marol@jameasaifiyah.edu') {
-                    return classNum === 4 || (classNum === 3 && gender === 'M');
-                }
-                if (parsedEmail === 'collegiate_one.marol@jameasaifiyah.edu') {
-                    return classNum >= 5 && classNum <= 7;
-                }
-                if (parsedEmail === 'collegiate_two.marol@jameasaifiyah.edu') {
-                    return classNum >= 8 && classNum <= 11;
-                }
-                return true; 
-            });
-        }
-
         window.switchView = (viewName) => {
             const navTeacher = document.getElementById('nav-teacher');
             const navAdmin = document.getElementById('nav-admin');
-
             if (viewName === 'teacher') {
                 teacherView.classList.remove('hidden');
                 adminView.classList.add('hidden');
                 navTeacher.classList.add('nav-active');
-                if(navAdmin) navAdmin.classList.remove('nav-active');
+                if (navAdmin) navAdmin.classList.remove('nav-active');
                 renderTeacherTable();
+                closeSidebarIfMobile();
             } else if (viewName === 'admin' && userIsAdmin) {
                 teacherView.classList.add('hidden');
                 adminView.classList.remove('hidden');
-                if(navAdmin) navAdmin.classList.add('nav-active');
+                if (navAdmin) navAdmin.classList.add('nav-active');
                 navTeacher.classList.remove('nav-active');
-                renderAdminDashboard('class'); // Default group by Class
+                renderAdminDashboard('class');
+                closeSidebarIfMobile();
             }
         };
-
-        // ==========================================
-        // TEACHER VIEW LOGIC
-        // ==========================================
-        
-        function formatClassName(alloc) {
-            // Combines Class, Section, Gender (e.g., 4CF or 5BM)
-            const c = alloc.Class || '';
-            const s = alloc.Section || '';
-            const g = alloc.Gender || '';
-            return `${c}${s}${g}`.trim();
-        }
 
         function renderTeacherTable() {
             const tbody = document.getElementById('allocations-table-body');
             tbody.innerHTML = '';
-            
-            if (allocations.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="3" class="text-center py-8 text-gray-500">No allocations found for your email.</td></tr>`;
+            if (!allocations.length) {
+                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-8 text-gray-500">No allocations found for your email.</td></tr>`;
                 return;
             }
-
             allocations.forEach(alloc => {
-                const combinedClassName = formatClassName(alloc);
-                const bookTitle = alloc.BookName || '-';
-                const bookTitleAr = alloc['BookName AR'] || '';
-                const periods = alloc.TotalPeriodsPerWeek || '0';
-
                 const tr = document.createElement('tr');
-                tr.className = "border-b border-gray-200 hover:bg-gray-50 transition-colors";
-                
+                tr.className = 'border-b border-gray-200 hover:bg-gray-50 transition-colors';
                 tr.innerHTML = `
-                    <td class="py-4 px-4 text-sm font-semibold whitespace-nowrap text-jamea-primary">${combinedClassName}</td>
-                    <td class="py-4 px-4 text-sm text-gray-800">
-                        <div class="font-medium">${bookTitle}</div>
-                        <div class="text-xs text-gray-500 mt-1" dir="rtl" style="font-family: Arial, sans-serif;">${bookTitleAr}</div>
+                    <td class="py-4 px-4"><strong>${esc(formatClassName(alloc))}</strong></td>
+                    <td class="py-4 px-4 arabic-text">${esc(getSubjectAr(alloc))}</td>
+                    <td class="py-4 px-4">
+                        <div class="font-medium">${esc(alloc.BookName || '-')}</div>
+                        ${getBookNameAr(alloc) ? `<div class="text-xs text-gray-500 mt-1 arabic-text">${esc(getBookNameAr(alloc))}</div>` : ''}
                     </td>
-                    <td class="py-4 px-4 align-middle">
-                        <div class="flex flex-col items-center justify-center w-24">
-                            <span class="bg-gray-100 border border-gray-200 text-gray-800 px-3 py-1 rounded-md font-mono text-lg font-bold shadow-sm">${periods}</span>
-                            <div class="flex space-x-3 mt-2">
-                                <button onclick="openActionModal('${alloc.id}')" class="text-[11px] text-blue-600 hover:text-blue-800 font-medium underline transition-colors">Modify</button>
-                                <button onclick="handleFullRelease('${alloc.id}')" class="text-[11px] text-red-600 hover:text-red-800 font-medium underline transition-colors">Give Off</button>
-                            </div>
+                    <td class="py-4 px-4">
+                        <div style="font-size: 1.2rem; font-weight: bold; margin-bottom: 5px;">${esc(alloc.TotalPeriodsPerWeek || '0')}</div>
+                        <div style="font-size: 0.85rem;">
+                            <a href="#" onclick="openActionModal('${esc(alloc.id)}'); return false;" style="color:#800000; text-decoration:none; margin-right:8px;">[Modify]</a>
+                            <a href="#" onclick="handleFullRelease('${esc(alloc.id)}'); return false;" style="color:#800000; text-decoration:none;">[Give Off]</a>
                         </div>
                     </td>
                 `;
@@ -264,69 +306,43 @@
         }
 
         async function submitRequestToGAS(data) {
-            showLoading(true, "Submitting request...");
+            showLoading(true, 'Submitting request...');
             try {
-                const response = await fetch(GAS_WEB_APP_URL, {
-                    method: 'POST',
-                    body: JSON.stringify(data),
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' }
-                });
-                const result = await response.json();
-                if(result.success) {
-                    showToast("Request submitted successfully!", "success");
+                const result = await callGAS({ action: 'submit_request', ...data });
+                if (result.success) {
+                    showToast('Request submitted successfully!', 'success');
                     closeActionModal();
                     closeExtraPeriodsModal();
                 } else {
-                    showToast("Error: " + result.error, "error");
+                    showToast('Error: ' + (result.error || 'Unknown error'), 'error');
                 }
             } catch (error) {
-                console.error("Submission error:", error);
-                showToast("Failed to submit request.", "error");
+                console.error('Submission error:', error);
+                showToast('Failed to submit request.', 'error');
             } finally {
                 showLoading(false);
             }
         }
 
         window.handleFullRelease = async (allocationId) => {
-            const alloc = allocations.find(a => a.id === allocationId);
+            const alloc = allocations.find(a => String(a.id) === String(allocationId));
+            if (!alloc) return showToast('Allocation not found.', 'error');
             const className = formatClassName(alloc);
-            
-            if(confirm(`Are you sure you want to completely give off ${className} - ${alloc.BookName}?`)) {
-                await submitRequestToGAS({
-                    email: currentUser.email,
-                    type: 'release',
-                    requestAction: 'full_release',
-                    className: className,
-                    bookName: alloc.BookName,
-                    currentTotal: alloc.TotalPeriodsPerWeek,
-                    classNum: alloc.Class,
-                    gender: alloc.Gender
-                });
+            if (confirm(`Are you sure you want to completely give off ${className} - ${alloc.BookName}?`)) {
+                await submitRequestToGAS({ allocationId: alloc.id, type: 'release', requestAction: 'full_release' });
             }
         };
 
         window.submitPartialRelease = async () => {
             const allocId = document.getElementById('modal-alloc-id').value;
-            const dropCount = parseInt(document.getElementById('periods-to-drop').value);
-            const alloc = allocations.find(a => a.id === allocId);
-            const className = formatClassName(alloc);
-            
-            if (isNaN(dropCount) || dropCount <= 0 || dropCount >= alloc.TotalPeriodsPerWeek) {
-                showToast(`Enter a number between 1 and ${alloc.TotalPeriodsPerWeek - 1}`, "error");
+            const dropCount = parseInt(document.getElementById('periods-to-drop').value, 10);
+            const alloc = allocations.find(a => String(a.id) === String(allocId));
+            if (!alloc) return showToast('Allocation not found.', 'error');
+            if (isNaN(dropCount) || dropCount <= 0 || dropCount >= Number(alloc.TotalPeriodsPerWeek)) {
+                showToast(`Enter a number between 1 and ${Number(alloc.TotalPeriodsPerWeek) - 1}`, 'error');
                 return;
             }
-
-            await submitRequestToGAS({
-                email: currentUser.email,
-                type: 'release',
-                requestAction: 'partial_release',
-                periodsToDrop: dropCount,
-                className: className,
-                bookName: alloc.BookName,
-                currentTotal: alloc.TotalPeriodsPerWeek,
-                classNum: alloc.Class,
-                gender: alloc.Gender
-            });
+            await submitRequestToGAS({ allocationId: alloc.id, type: 'release', requestAction: 'partial_release', periodsToDrop: dropCount });
         };
 
         window.submitExtraPeriodsRequest = async () => {
@@ -334,41 +350,27 @@
             const allocationId = selectEl.value;
             const periods = document.getElementById('extra-periods').value;
             const reason = document.getElementById('extra-reason').value;
-            
-            if(!allocationId || !periods) {
-                showToast("Please select a subject and enter the periods.", "error");
+            if (!allocationId || !periods) {
+                showToast('Please select a subject and enter the periods.', 'error');
                 return;
             }
-
-            const alloc = allocations.find(a => a.id === allocationId);
-            const className = formatClassName(alloc);
-
-            await submitRequestToGAS({
-                email: currentUser.email,
-                type: 'extra',
-                requestAction: 'add_periods',
-                requestedPeriods: periods,
-                reason: reason,
-                className: className,
-                bookName: alloc.BookName,
-                currentTotal: alloc.TotalPeriodsPerWeek,
-                classNum: alloc.Class,
-                gender: alloc.Gender
-            });
+            const alloc = allocations.find(a => String(a.id) === String(allocationId));
+            if (!alloc) return showToast('Allocation not found.', 'error');
+            await submitRequestToGAS({ allocationId: alloc.id, type: 'extra', requestAction: 'add_periods', requestedPeriods: periods, reason: reason });
         };
 
         window.openActionModal = (allocationId) => {
-            const alloc = allocations.find(a => a.id === allocationId);
+            const alloc = allocations.find(a => String(a.id) === String(allocationId));
+            if (!alloc) return;
             document.getElementById('modal-alloc-id').value = allocationId;
-            document.getElementById('modal-subject-name').textContent = `${formatClassName(alloc)} - ${alloc.BookName}`;
-            document.getElementById('modal-current-periods').textContent = alloc.TotalPeriodsPerWeek;
-            
+            document.getElementById('modal-subject-name').textContent = `${formatClassName(alloc)} - ${alloc.BookName || ''}`;
+            document.getElementById('modal-current-periods').textContent = alloc.TotalPeriodsPerWeek || '0';
             const input = document.getElementById('periods-to-drop');
-            input.max = alloc.TotalPeriodsPerWeek - 1;
+            input.max = Math.max(1, Number(alloc.TotalPeriodsPerWeek) - 1);
             input.value = 1;
-
-            const modal = document.getElementById('action-modal');
-            modal.classList.remove('hidden');
+            document.getElementById('action-modal').classList.remove('hidden');
+            focusFirstInput('action-modal');
+            closeSidebarIfMobile();
         };
         window.closeActionModal = () => document.getElementById('action-modal').classList.add('hidden');
 
@@ -378,157 +380,124 @@
             allocations.forEach(alloc => {
                 const option = document.createElement('option');
                 option.value = alloc.id;
-                option.textContent = `${formatClassName(alloc)} - ${alloc.BookName}`;
+                option.textContent = `${formatClassName(alloc)} - ${alloc.BookName || ''}`;
                 selectEl.appendChild(option);
             });
             document.getElementById('extra-periods-modal').classList.remove('hidden');
+            focusFirstInput('extra-periods-modal');
+            closeSidebarIfMobile();
         };
         window.closeExtraPeriodsModal = () => document.getElementById('extra-periods-modal').classList.add('hidden');
 
-
-        // ==========================================
-        // ADMIN DASHBOARD LOGIC
-        // ==========================================
-        
         window.renderAdminDashboard = (groupBy) => {
             const container = document.getElementById('admin-dashboard-content');
             container.innerHTML = '';
-            
             const btnClassTab = 'px-4 py-2 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300';
             const btnClassActive = 'px-4 py-2 bg-jamea-primary text-white rounded-md text-sm shadow-sm';
-            
             document.getElementById('tab-class').className = groupBy === 'class' ? btnClassActive : btnClassTab;
             document.getElementById('tab-teacher').className = groupBy === 'teacher' ? btnClassActive : btnClassTab;
             document.getElementById('tab-book').className = groupBy === 'book' ? btnClassActive : btnClassTab;
-
-            if(allRequests.length === 0) {
+            if (!allRequests.length) {
                 container.innerHTML = `<div class="p-8 text-center text-gray-500 bg-white rounded-lg border">No pending requests found for your scope.</div>`;
                 return;
             }
-
-            let grouped = {};
+            const grouped = {};
             allRequests.forEach(req => {
                 let key;
-                if(groupBy === 'teacher') key = req['Email'];
-                else if(groupBy === 'book') key = `${req['Formatted Class']} - ${req['Book Name']}`;
-                else key = `Class ${req['Formatted Class']}`; // Group strictly by class (e.g. 5BM)
-
-                if(!grouped[key]) grouped[key] = [];
+                if (groupBy === 'teacher') key = req['Email'];
+                else if (groupBy === 'book') key = `${req['Formatted Class']} - ${req['Book Name']}`;
+                else key = `Class ${req['Formatted Class']}`;
+                if (!grouped[key]) grouped[key] = [];
                 grouped[key].push(req);
             });
-
             for (const [key, requests] of Object.entries(grouped)) {
                 let icon = 'fa-users-class';
-                if(groupBy === 'teacher') icon = 'fa-user-tie';
-                if(groupBy === 'book') icon = 'fa-book';
-
+                if (groupBy === 'teacher') icon = 'fa-user-tie';
+                if (groupBy === 'book') icon = 'fa-book';
                 let html = `
                 <div class="mb-6 bg-white border rounded-lg shadow-sm overflow-hidden">
                     <div class="bg-gray-100 px-4 py-3 border-b border-gray-200 font-semibold text-jamea-dark flex justify-between items-center">
-                        <span><i class="fa-solid ${icon} mr-2 text-jamea-gold"></i> ${key}</span>
+                        <span><i class="fa-solid ${icon} mr-2 text-jamea-gold"></i> ${esc(key)}</span>
                         <span class="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded-full">${requests.length} Requests</span>
                     </div>
                     <div class="divide-y divide-gray-100">
                 `;
-                
                 requests.forEach(req => {
                     const isExtra = req['Request Type'] === 'extra';
                     const badgeColor = isExtra ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
-                    const changeText = isExtra ? `Requested ${req['Requested Change']} Extra` : `Requested Drop ${req['Requested Change']}`;
-                    
+                    const changeText = isExtra ? `Requested ${esc(req['Requested Change'])} Extra` : `Requested Drop ${esc(req['Requested Change'])}`;
                     const dateObj = new Date(req['Timestamp']);
-                    const dateStr = dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-
+                    const dateStr = isNaN(dateObj.getTime()) ? '' : dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
                     let mainLabel = '';
-                    if(groupBy === 'teacher') mainLabel = `${req['Formatted Class']} • ${req['Book Name']}`;
-                    else if(groupBy === 'book') mainLabel = req['Email'];
-                    else mainLabel = `<span class="font-bold text-jamea-primary">${req['Book Name']}</span> <span class="text-gray-400">by</span> ${req['Email']}`;
-
+                    if (groupBy === 'teacher') mainLabel = `${esc(req['Formatted Class'])} • ${esc(req['Book Name'])}`;
+                    else if (groupBy === 'book') mainLabel = esc(req['Email']);
+                    else mainLabel = `<span class="font-bold text-jamea-primary">${esc(req['Book Name'])}</span> <span class="text-gray-400">by</span> ${esc(req['Email'])}`;
                     html += `
                         <div class="p-4 hover:bg-gray-50 flex flex-col md:flex-row justify-between md:items-center">
                             <div>
                                 <div class="font-medium text-sm text-gray-900">${mainLabel}</div>
-                                <div class="text-xs text-gray-500 mt-1">Current Periods: ${req['Current Periods']} | Reason: ${req['Reason'] || 'N/A'}</div>
+                                <div class="text-xs text-gray-500 mt-1">Current Periods: ${esc(req['Current Periods'])} | Reason: ${esc(req['Reason'] || 'N/A')}</div>
                             </div>
                             <div class="mt-2 md:mt-0 flex items-center space-x-4">
-                                <span class="text-xs text-gray-400"><i class="fa-regular fa-clock mr-1"></i>${dateStr}</span>
+                                <span class="text-xs text-gray-400"><i class="fa-regular fa-clock mr-1"></i>${esc(dateStr)}</span>
                                 <span class="px-2 py-1 rounded text-xs font-semibold ${badgeColor}">${changeText}</span>
                             </div>
                         </div>
                     `;
                 });
-                
                 html += `</div></div>`;
                 container.innerHTML += html;
             }
         };
 
-        window.openAddAdminModal = () => document.getElementById('add-admin-modal').classList.remove('hidden');
+        window.openAddAdminModal = () => {
+            document.getElementById('add-admin-modal').classList.remove('hidden');
+            focusFirstInput('add-admin-modal');
+            closeSidebarIfMobile();
+        };
         window.closeAddAdminModal = () => document.getElementById('add-admin-modal').classList.add('hidden');
-        
+
         window.submitNewAdmin = async () => {
-            const email = document.getElementById('new-admin-email').value;
-            if(!email) return;
-            
-            showLoading(true, "Adding admin...");
+            const email = document.getElementById('new-admin-email').value.trim();
+            if (!email) return;
+            showLoading(true, 'Adding admin...');
             try {
-                const response = await fetch(GAS_WEB_APP_URL, {
-                    method: 'POST',
-                    body: JSON.stringify({ action: 'add_admin', newAdminEmail: email }),
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' }
-                });
-                const result = await response.json();
-                if(result.success) {
-                    showToast("Admin added successfully!", "success");
+                const result = await callGAS({ action: 'add_admin', newAdminEmail: email });
+                if (result.success) {
+                    showToast('Admin added successfully!', 'success');
                     closeAddAdminModal();
                     document.getElementById('new-admin-email').value = '';
                 } else {
-                    showToast("Error adding admin.", "error");
+                    showToast('Error adding admin: ' + (result.error || 'Unknown error'), 'error');
                 }
             } catch (e) {
-                showToast("Network error.", "error");
+                showToast('Network error.', 'error');
             } finally {
                 showLoading(false);
             }
         };
 
-
-        // ==========================================
-        // UI HELPERS
-        // ==========================================
-        function showToast(message, type = "info") {
-            const toast = document.createElement('div');
-            const bgColor = type === 'error' ? 'bg-red-500' : type === 'success' ? 'bg-green-500' : 'bg-blue-500';
-            toast.className = `${bgColor} text-white px-6 py-3 rounded shadow-lg mb-3 transform transition-all duration-300 translate-y-10 opacity-0`;
-            toast.textContent = message;
-            toastContainer.appendChild(toast);
-            setTimeout(() => toast.classList.remove('translate-y-10', 'opacity-0'), 10);
-            setTimeout(() => { toast.classList.add('opacity-0'); setTimeout(() => toast.remove(), 300); }, 3000);
-        }
-
-        function showLoading(show, text = "Loading...") {
-            if (show) {
-                loadingOverlay.classList.remove('hidden');
-                document.getElementById('loading-text').textContent = text;
-            } else {
-                loadingOverlay.classList.add('hidden');
+        window.addEventListener('resize', () => {
+            if (!isMobile()) {
+                const sidebar = document.querySelector('.sidebar');
+                if (sidebar) sidebar.classList.remove('active');
             }
-        }
+        });
     </script>
 
     <!-- LOGIN SCREEN -->
     <div id="login-view" class="w-full h-full flex flex-col items-center justify-center bg-jamea-bg relative">
         <div class="absolute top-0 left-0 w-full h-2 bg-jamea-gold"></div>
         <div class="absolute bottom-0 w-full h-32 bg-jamea-primary opacity-5 rounded-t-full -mb-16"></div>
-        
+
         <div class="bg-white p-10 rounded-xl shadow-2xl z-10 max-w-md w-full text-center border-t-4 border-jamea-primary">
             <div class="w-20 h-20 bg-jamea-primary rounded-full flex items-center justify-center mx-auto mb-6 text-jamea-gold border-2 border-jamea-gold">
                 <i class="fa-solid fa-book-open text-3xl"></i>
             </div>
             <h1 class="text-3xl font-bold text-gray-800 mb-2 font-serif" style="color: #5a1324;">HESAS BADAL </h1>
             <p class="text-gray-500 mb-8">Periods Allocation & Modification System</p>
-            
-            <button onclick="handleGoogleLogin()" class="w-full flex items-center justify-center space-x-3 bg-white border border-gray-300 text-gray-700 px-4 py-3 rounded-md hover:bg-gray-50 hover:shadow-md transition-all font-medium">
+
+            <button onclick="handleGoogleLogin()" class="w-full flex items-center justify-center space-x-3 bg-white border border-gray-300 text-gray-700 px-4 py-3 rounded-md hover:bg-gray-50 transition-colors">
                 <svg class="w-5 h-5" viewBox="0 0 24 24">
                     <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                     <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
@@ -542,34 +511,14 @@
 
     <!-- MAIN APP SCREEN -->
     <div id="app-view" class="hidden w-full h-full flex flex-col md:flex-row bg-[#f5f5f5]">
-        <!-- Sidebar -->
-        @media (max-width: 768px) {
-    .sidebar {
-        position: fixed;
-        top: 0;
-        left: -100%; /* Hides off-screen by default */
-        height: 100vh;
-        z-index: 1000;
-        transition: left 0.3s ease-in-out;
-    }
-    
-    .sidebar.active {
-        left: 0; /* Slides in when active class is toggled */
-    }
-
-    .main-content {
-        margin-left: 0;
-        width: 100%;
-    }
-}
-        <aside class="w-full md:w-64 bg-jamea-sidebar text-white flex flex-col shadow-xl z-20">
+        <aside class="sidebar w-full md:w-64 bg-jamea-sidebar text-white flex flex-col shadow-xl z-20">
             <div class="h-16 flex items-center px-4 bg-jamea-dark border-b border-white/10">
                 <div class="w-8 h-8 rounded bg-white/10 flex items-center justify-center mr-3">
                     <i class="fa-solid fa-university text-jamea-gold"></i>
                 </div>
                 <div class="font-bold text-sm tracking-wider">HESAS BADAL</div>
             </div>
-            
+
             <div class="p-4 bg-jamea-primary/50 mb-2">
                 <div class="flex items-center space-x-3 mb-3">
                     <div class="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-lg">
@@ -587,8 +536,7 @@
                     <i class="fa-solid fa-list-check w-5 text-center"></i>
                     <span class="text-sm font-medium">My Allocations</span>
                 </a>
-                
-                <!-- Hidden by default, shown if Admin -->
+
                 <div id="admin-nav-menu" class="hidden mt-6">
                     <div class="text-[10px] uppercase tracking-wider text-jamea-gold font-bold px-3 mb-2 mt-4">Administration</div>
                     <a href="#" id="nav-admin" onclick="switchView('admin')" class="flex items-center space-x-3 px-3 py-2 text-white/70 hover:bg-white/5 hover:text-white rounded-md transition-colors">
@@ -597,7 +545,7 @@
                     </a>
                 </div>
             </nav>
-            
+
             <div class="p-4 border-t border-white/10">
                 <button onclick="handleLogout()" class="flex items-center space-x-2 text-white/70 hover:text-white transition-colors text-sm w-full">
                     <i class="fa-solid fa-sign-out-alt"></i>
@@ -606,17 +554,16 @@
             </div>
         </aside>
 
-        <!-- Main Content Area -->
-        <main class="flex-1 flex flex-col h-full overflow-hidden">
+        <main class="main-content flex-1 flex flex-col h-full overflow-hidden">
             <header class="h-16 bg-jamea-primary text-white flex items-center justify-between px-6 shadow-md relative z-10">
                 <div class="flex items-center space-x-6">
+                    <button class="mobile-menu-btn" onclick="document.querySelector('.sidebar').classList.toggle('active')">☰</button>
                     <div class="flex items-center space-x-2 text-white/80">
                         <i class="fa-solid fa-house text-sm"></i><span class="text-sm font-medium">HOME</span>
                     </div>
                 </div>
             </header>
 
-            <!-- TEACHER VIEW (My Allocations) -->
             <div id="teacher-view" class="flex-1 overflow-auto custom-scrollbar p-6">
                 <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                     <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
@@ -627,42 +574,29 @@
                             + Request Extra Periods
                         </button>
                     </div>
-                    
+
                     <div class="p-6">
                         <div class="overflow-x-auto border rounded-lg">
                             <table class="min-w-full divide-y divide-gray-200 text-left">
                                 <thead class="bg-gray-50">
                                     <tr>
-                                        <td>${row.ClassFormat}</td>
-    <td class="arabic-text">${row.SubjectAR}</td> <!-- Arabic Subject moved here -->
-    <td>${row.BookName}</td>
-    <td>
-        <div class="weekly-periods">${row.WeeklyPeriods}</div>
-        <div class="action-buttons">
-            <a href="#" onclick="openModifyModal('${row.BookName}')">[Modify]</a>
-            <a href="#" onclick="openGiveOffModal('${row.BookName}')">[Give Off]</a>
-        </div>
-    </td>
-</tr>
-`;
-                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider w-32">Class & Sec</th>
+                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider">Class</th>
+                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider arabic-text">المادة</th>
                                         <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider">Book Name</th>
-                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider text-center w-40">Weekly Periods</th>
+                                        <th scope="col" class="px-4 py-3 text-xs font-semibold text-[#666] uppercase tracking-wider text-center">Weekly Periods</th>
                                     </tr>
                                 </thead>
-                                <tbody id="allocations-table-body" class="bg-white divide-y divide-gray-200">
-                                </tbody>
+                                <tbody id="allocations-table-body" class="bg-white divide-y divide-gray-200"></tbody>
                             </table>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- ADMIN VIEW (Dashboard) -->
             <div id="admin-view" class="hidden flex-1 overflow-auto custom-scrollbar p-6">
                 <div class="flex justify-between items-center mb-6">
                     <h2 class="text-2xl font-bold text-gray-800">Requests Dashboard</h2>
-                    <button id="add-admin-btn" onclick="openAddAdminModal()" class="hidden text-sm border border-jamea-primary text-jamea-primary px-3 py-1.5 rounded hover:bg-jamea-primary hover:text-white transition-colors shadow-sm font-medium">
+                    <button id="add-admin-btn" onclick="openAddAdminModal()" class="hidden text-sm border border-jamea-primary text-jamea-primary px-3 py-1.5 rounded hover:bg-jamea-primary hover:text-white transition-colors">
                         + Manage Admins
                     </button>
                 </div>
@@ -673,15 +607,11 @@
                     <button id="tab-book" onclick="renderAdminDashboard('book')" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300">Group by Book/Class</button>
                 </div>
 
-                <div id="admin-dashboard-content">
-                    <!-- Injected by JS -->
-                </div>
+                <div id="admin-dashboard-content"></div>
             </div>
-
         </main>
     </div>
 
-    <!-- Modals (Modify, Extra Periods, Add Admin) -->
     <div id="action-modal" class="fixed inset-0 z-50 flex items-center justify-center hidden bg-black/50 backdrop-blur-sm">
         <div class="bg-white rounded-lg shadow-2xl z-10 w-full max-w-md mx-4 overflow-hidden">
             <div class="px-6 py-4 bg-jamea-primary text-white flex justify-between">
@@ -756,12 +686,10 @@
         </div>
     </div>
 
-    <!-- UTILS -->
     <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col items-end pointer-events-none"></div>
     <div id="loading-overlay" class="fixed inset-0 bg-white/80 backdrop-blur-sm z-[100] flex flex-col items-center justify-center hidden">
         <div class="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-jamea-primary mb-4"></div>
         <p id="loading-text" class="text-gray-600 font-medium tracking-wide">Loading...</p>
     </div>
-
 </body>
 </html>
