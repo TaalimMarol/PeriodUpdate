@@ -75,6 +75,7 @@
                 opacity: 0;
                 visibility: hidden;
                 transition: opacity 0.3s ease-in-out, visibility 0s linear 0.3s;
+                pointer-events: auto;
             }
             .mobile-overlay.active {
                 opacity: 1;
@@ -151,6 +152,9 @@
             }
             document.body.style.overflow = '';
         }
+        // expose functions to global scope so inline handlers can call them
+        window.showMobileSidebar = showMobileSidebar;
+        window.hideMobileSidebar = hideMobileSidebar;
         window.toggleMobileSidebar = () => {
             const sidebar = document.querySelector('.sidebar');
             if (!sidebar) return;
@@ -533,6 +537,32 @@
                 document.body.style.overflow = '';
             }
         });
+
+        // Attach stable event listeners (avoid relying on inline onclick attributes)
+        // Runs after DOM parsed because module scripts are deferred
+        const _attachMobileListeners = () => {
+            const overlayEl = document.getElementById('mobile-overlay');
+            const menuBtn = document.querySelector('.mobile-menu-btn');
+            if (overlayEl) {
+                overlayEl.addEventListener('click', hideMobileSidebar);
+                // ensure ARIA and keyboard support
+                overlayEl.setAttribute('role', 'button');
+                overlayEl.setAttribute('aria-label', 'Close sidebar');
+                overlayEl.tabIndex = -1;
+            }
+            if (menuBtn) {
+                // keep inline handler as fallback but also attach listener
+                menuBtn.addEventListener('click', (e) => { e.preventDefault(); toggleMobileSidebar(); });
+            }
+
+            // close on Escape key
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') hideMobileSidebar();
+            });
+        };
+
+        // delay slightly to make sure elements exist (module scripts are deferred, but be defensive)
+        setTimeout(_attachMobileListeners, 20);
     </script>
 
     <!-- LOGIN SCREEN -->
@@ -605,11 +635,11 @@
         </aside>
 
         <!-- Mobile overlay sits behind the sidebar but above main content -->
-        <div id="mobile-overlay" class="mobile-overlay hidden" onclick="hideMobileSidebar()"></div>
+        <div id="mobile-overlay" class="mobile-overlay hidden"></div>
 
         <main class="main-content flex-1 flex flex-col h-full overflow-hidden">
             <header class="h-16 bg-jamea-primary text-white flex items-center justify-between px-6 shadow-md relative z-10">
-                <button class="mobile-menu-btn" onclick="toggleMobileSidebar()">☰</button>
+                <button class="mobile-menu-btn">☰</button>
                 <div class="flex items-center space-x-6">
                     <div class="flex items-center space-x-2 text-white/80">
                         <i class="fa-solid fa-house text-sm"></i><span class="text-sm font-medium">HOME</span>
@@ -649,7 +679,7 @@
             <div id="admin-view" class="hidden flex-1 overflow-auto custom-scrollbar p-6">
                 <div class="flex justify-between items-center mb-6">
                     <h2 class="text-2xl font-bold text-gray-800">Requests Dashboard</h2>
-                    <button id="add-admin-btn" onclick="openAddAdminModal()" class="hidden text-sm border border-jamea-primary text-jamea-primary px-3 py-1.5 rounded hover:bg-jamea-primary hover:text-white">
+                    <button id="add-admin-btn" onclick="openAddAdminModal()" class="hidden text-sm border border-jamea-primary text-jamea-primary px-3 py-1.5 rounded hover:bg-jamea-primary hover:[...]
                         + Manage Admins
                     </button>
                 </div>
