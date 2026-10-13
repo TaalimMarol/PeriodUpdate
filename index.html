@@ -50,20 +50,37 @@
             cursor: pointer;
             margin-right: 15px;
         }
+        /* Mobile off-canvas sidebar and overlay */
         @media (max-width: 768px) {
             .mobile-menu-btn { display: inline-block; }
             .sidebar {
                 position: fixed;
                 top: 0;
-                left: -250px;
+                left: 0;
+                transform: translateX(-100%);
                 width: 250px;
                 height: 100vh;
                 z-index: 1000;
-                transition: left 0.3s ease-in-out;
+                transition: transform 0.3s ease-in-out;
                 box-shadow: 2px 0 5px rgba(0,0,0,0.5);
             }
-            .sidebar.active { left: 0; }
+            .sidebar.active { transform: translateX(0); }
             .main-content { margin-left: 0; width: 100%; }
+
+            .mobile-overlay {
+                position: fixed;
+                inset: 0;
+                background: rgba(0,0,0,0.4);
+                z-index: 900;
+                opacity: 0;
+                visibility: hidden;
+                transition: opacity 0.3s ease-in-out, visibility 0s linear 0.3s;
+            }
+            .mobile-overlay.active {
+                opacity: 1;
+                visibility: visible;
+                transition-delay: 0s;
+            }
         }
     </style>
 </head>
@@ -109,11 +126,41 @@
 
         const provider = new GoogleAuthProvider();
         const isMobile = () => window.matchMedia('(max-width: 768px)').matches;
-        const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
+        const esc = (value) => String(value ?? '').replace(/[&<>\"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\'':'&#39;'}[c]));
+
+        /* Mobile sidebar helper functions: show/hide with overlay */
+        function showMobileSidebar() {
+            const sidebar = document.querySelector('.sidebar');
+            const overlay = document.getElementById('mobile-overlay');
+            if (!sidebar || !overlay) return;
+            sidebar.classList.add('active');
+            overlay.classList.remove('hidden');
+            // Allow the browser to apply hidden removal before activating opacity
+            setTimeout(() => overlay.classList.add('active'), 10);
+            // Prevent body scroll while open
+            document.body.style.overflow = 'hidden';
+        }
+        function hideMobileSidebar() {
+            const sidebar = document.querySelector('.sidebar');
+            const overlay = document.getElementById('mobile-overlay');
+            if (sidebar) sidebar.classList.remove('active');
+            if (overlay) {
+                overlay.classList.remove('active');
+                // After transition, hide the overlay to remove it from tab order
+                setTimeout(() => overlay.classList.add('hidden'), 300);
+            }
+            document.body.style.overflow = '';
+        }
+        window.toggleMobileSidebar = () => {
+            const sidebar = document.querySelector('.sidebar');
+            if (!sidebar) return;
+            if (sidebar.classList.contains('active')) hideMobileSidebar();
+            else showMobileSidebar();
+        };
 
         function closeSidebarOnMobile() {
-            const sidebar = document.querySelector('.sidebar');
-            if (sidebar && isMobile()) sidebar.classList.remove('active');
+            // kept for backward compatibility with other calls
+            if (isMobile()) hideMobileSidebar();
         }
 
         function focusFirstInput(containerId) {
@@ -194,7 +241,7 @@
 
         function closeSidebarIfMobile() {
             const sidebar = document.querySelector('.sidebar');
-            if (sidebar && isMobile()) sidebar.classList.remove('active');
+            if (sidebar && isMobile()) hideMobileSidebar();
         }
 
         async function fetchDashboardData() {
@@ -481,6 +528,9 @@
             if (!isMobile()) {
                 const sidebar = document.querySelector('.sidebar');
                 if (sidebar) sidebar.classList.remove('active');
+                const overlay = document.getElementById('mobile-overlay');
+                if (overlay) { overlay.classList.remove('active'); overlay.classList.add('hidden'); }
+                document.body.style.overflow = '';
             }
         });
     </script>
@@ -554,9 +604,12 @@
             </div>
         </aside>
 
+        <!-- Mobile overlay sits behind the sidebar but above main content -->
+        <div id="mobile-overlay" class="mobile-overlay hidden" onclick="hideMobileSidebar()"></div>
+
         <main class="main-content flex-1 flex flex-col h-full overflow-hidden">
             <header class="h-16 bg-jamea-primary text-white flex items-center justify-between px-6 shadow-md relative z-10">
-                <button class="mobile-menu-btn" onclick="document.querySelector('.sidebar').classList.toggle('active')">☰</button>
+                <button class="mobile-menu-btn" onclick="toggleMobileSidebar()">☰</button>
                 <div class="flex items-center space-x-6">
                     <div class="flex items-center space-x-2 text-white/80">
                         <i class="fa-solid fa-house text-sm"></i><span class="text-sm font-medium">HOME</span>
@@ -596,7 +649,7 @@
             <div id="admin-view" class="hidden flex-1 overflow-auto custom-scrollbar p-6">
                 <div class="flex justify-between items-center mb-6">
                     <h2 class="text-2xl font-bold text-gray-800">Requests Dashboard</h2>
-                    <button id="add-admin-btn" onclick="openAddAdminModal()" class="hidden text-sm border border-jamea-primary text-jamea-primary px-3 py-1.5 rounded hover:bg-jamea-primary hover:text-white transition-colors">
+                    <button id="add-admin-btn" onclick="openAddAdminModal()" class="hidden text-sm border border-jamea-primary text-jamea-primary px-3 py-1.5 rounded hover:bg-jamea-primary hover:text-white">
                         + Manage Admins
                     </button>
                 </div>
