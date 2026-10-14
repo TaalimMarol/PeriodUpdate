@@ -650,6 +650,13 @@
                         <div id="user-email-display" class="text-xs text-white/60 truncate">email@example.com</div>
                     </div>
                 </div>
+                <!-- Logout button moved here so it's directly beneath user info -->
+                <div>
+                    <button onclick="handleLogout()" class="w-full flex items-center justify-center space-x-2 text-white/90 hover:text-white transition-colors text-sm bg-jamea-sidebar/20 px-3 py-2 rounded-md">
+                        <i class="fa-solid fa-sign-out-alt"></i>
+                        <span>Log Out</span>
+                    </button>
+                </div>
             </div>
 
             <nav class="flex-1 px-2 py-4 space-y-1">
@@ -667,12 +674,7 @@
                 </div>
             </nav>
 
-            <div class="p-4 border-t border-white/10">
-                <button onclick="handleLogout()" class="flex items-center space-x-2 text-white/70 hover:text-white transition-colors text-sm w-full">
-                    <i class="fa-solid fa-sign-out-alt"></i>
-                    <span>Log Out</span>
-                </button>
-            </div>
+            <!-- bottom logout removed (moved above) -->
         </aside>
 
         <!-- Mobile overlay sits behind the sidebar but above main content -->
