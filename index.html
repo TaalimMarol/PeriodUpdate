@@ -127,7 +127,7 @@
 
         const provider = new GoogleAuthProvider();
         const isMobile = () => window.matchMedia('(max-width: 768px)').matches;
-        const esc = (value) => String(value ?? '').replace(/[&<>\"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\'':'&#39;'}[c]));
+        const esc = (value) => String(value ?? '').replace(/[&<>\"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\'' :'&#39;'}[c]));
 
         /* Mobile sidebar helper functions: show/hide with overlay */
         function showMobileSidebar() {
@@ -140,6 +140,9 @@
             setTimeout(() => overlay.classList.add('active'), 10);
             // Prevent body scroll while open
             document.body.style.overflow = 'hidden';
+            // update aria
+            const menuBtn = document.querySelector('.mobile-menu-btn');
+            if (menuBtn) menuBtn.setAttribute('aria-expanded', 'true');
         }
         function hideMobileSidebar() {
             const sidebar = document.querySelector('.sidebar');
@@ -151,6 +154,8 @@
                 setTimeout(() => overlay.classList.add('hidden'), 300);
             }
             document.body.style.overflow = '';
+            const menuBtn = document.querySelector('.mobile-menu-btn');
+            if (menuBtn) menuBtn.setAttribute('aria-expanded', 'false');
         }
         // expose functions to global scope so inline handlers can call them
         window.showMobileSidebar = showMobileSidebar;
@@ -203,9 +208,26 @@
         }
 
         function filterRequestsByAdminRole(requests, email, role) {
+            // SuperAdmin sees everything
             if (role === 'SuperAdmin') return requests;
             const parsedEmail = String(email || '').toLowerCase();
-            return requests.filter(r => {
+
+            // If requests explicitly include an admin/assigned field, prefer filtering by that
+            const adminFieldCandidates = ['Admin Email', 'Assigned Admin', 'Admin', 'AdminEmail'];
+            const hasAdminField = requests.some(r => adminFieldCandidates.some(f => r.hasOwnProperty(f)));
+            if (hasAdminField) {
+                const matched = requests.filter(r => {
+                    for (const f of adminFieldCandidates) {
+                        if (r[f] && String(r[f]).toLowerCase() === parsedEmail) return true;
+                    }
+                    return false;
+                });
+                // If we found matches for this admin, return them; otherwise fall through to other heuristics
+                if (matched.length) return matched;
+            }
+
+            // Legacy mapping by specific admin email addresses (keeps existing behavior for known accounts)
+            const legacyFiltered = requests.filter(r => {
                 const classNum = parseInt(r['Raw Class Number'], 10);
                 const gender = r['Raw Gender'];
                 if (parsedEmail === 'culture_generale_a.marol@jameasaifiyah.edu') {
@@ -220,8 +242,12 @@
                 if (parsedEmail === 'collegiate_two.marol@jameasaifiyah.edu') {
                     return classNum >= 8 && classNum <= 11;
                 }
-                return true;
+                return false;
             });
+            if (legacyFiltered.length) return legacyFiltered;
+
+            // Fallback: if we couldn't determine a narrower set, return all requests so admins can see pending items
+            return requests;
         }
 
         function showToast(message, type = 'info') {
@@ -256,14 +282,19 @@
                     allocations = Array.isArray(result.allocations) ? result.allocations : [];
                     userIsAdmin = !!result.isAdmin;
                     adminRole = result.adminRole || '';
+                    // keep the raw requests from backend; apply client-side filtering based on admin role when rendering
+                    const rawRequests = Array.isArray(result.requests) ? result.requests : [];
+
                     if (userIsAdmin) {
-                        allRequests = filterRequestsByAdminRole(result.requests || [], currentUser.email, adminRole);
+                        allRequests = filterRequestsByAdminRole(rawRequests, currentUser.email, adminRole);
                         adminNavMenu.classList.remove('hidden');
                         const addAdminBtn = document.getElementById('add-admin-btn');
                         if (adminRole === 'SuperAdmin' && addAdminBtn) addAdminBtn.classList.remove('hidden');
                     } else {
                         adminNavMenu.classList.add('hidden');
+                        allRequests = [];
                     }
+
                     if (userIsAdmin && allocations.length === 0) switchView('admin');
                     else switchView('teacher');
                 } else {
@@ -322,6 +353,8 @@
                 adminView.classList.remove('hidden');
                 if (navAdmin) navAdmin.classList.add('nav-active');
                 navTeacher.classList.remove('nav-active');
+                // when entering admin view, ensure the dashboard uses up-to-date filtering
+                allRequests = filterRequestsByAdminRole(allRequests, currentUser.email, adminRole);
                 renderAdminDashboard('class');
                 closeSidebarIfMobile();
             }
@@ -551,6 +584,10 @@
                 overlayEl.tabIndex = -1;
             }
             if (menuBtn) {
+                // set ARIA attributes and attach listener
+                menuBtn.setAttribute('type', 'button');
+                menuBtn.setAttribute('aria-controls', 'sidebar');
+                menuBtn.setAttribute('aria-expanded', 'false');
                 // keep inline handler as fallback but also attach listener
                 menuBtn.addEventListener('click', (e) => { e.preventDefault(); toggleMobileSidebar(); });
             }
@@ -561,8 +598,12 @@
             });
         };
 
-        // delay slightly to make sure elements exist (module scripts are deferred, but be defensive)
-        setTimeout(_attachMobileListeners, 20);
+        // ensure listeners are attached after DOM is fully ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', _attachMobileListeners);
+        } else {
+            _attachMobileListeners();
+        }
     </script>
 
     <!-- LOGIN SCREEN -->
@@ -577,7 +618,7 @@
             <h1 class="text-3xl font-bold text-gray-800 mb-2 font-serif" style="color: #5a1324;">HESAS BADAL </h1>
             <p class="text-gray-500 mb-8">Periods Allocation & Modification System</p>
 
-            <button onclick="handleGoogleLogin()" class="w-full flex items-center justify-center space-x-3 bg-white border border-gray-300 text-gray-700 px-4 py-3 rounded-md hover:bg-gray-50 transition-colors">
+            <button onclick="handleGoogleLogin()" class="w-full flex items-center justify-center space-x-3 bg-white border border-gray-300 text-gray-700 px-4 py-3 rounded-md hover:bg-gray-50 tran[...]
                 <svg class="w-5 h-5" viewBox="0 0 24 24">
                     <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                     <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
@@ -591,7 +632,7 @@
 
     <!-- MAIN APP SCREEN -->
     <div id="app-view" class="hidden w-full h-full flex flex-col md:flex-row bg-[#f5f5f5]">
-        <aside class="sidebar w-full md:w-64 bg-jamea-sidebar text-white flex flex-col shadow-xl z-20">
+        <aside class="sidebar w-full md:w-64 bg-jamea-sidebar text-white flex flex-col shadow-xl z-20" id="sidebar">
             <div class="h-16 flex items-center px-4 bg-jamea-dark border-b border-white/10">
                 <div class="w-8 h-8 rounded bg-white/10 flex items-center justify-center mr-3">
                     <i class="fa-solid fa-university text-jamea-gold"></i>
@@ -619,7 +660,7 @@
 
                 <div id="admin-nav-menu" class="hidden mt-6">
                     <div class="text-[10px] uppercase tracking-wider text-jamea-gold font-bold px-3 mb-2 mt-4">Administration</div>
-                    <a href="#" id="nav-admin" onclick="switchView('admin')" class="flex items-center space-x-3 px-3 py-2 text-white/70 hover:bg-white/5 hover:text-white rounded-md transition-colors">
+                    <a href="#" id="nav-admin" onclick="switchView('admin')" class="flex items-center space-x-3 px-3 py-2 text-white/70 hover:bg-white/5 hover:text-white rounded-md transition-col[...]
                         <i class="fa-solid fa-chart-bar w-5 text-center"></i>
                         <span class="text-sm font-medium">Requests Dashboard</span>
                     </a>
@@ -639,7 +680,7 @@
 
         <main class="main-content flex-1 flex flex-col h-full overflow-hidden">
             <header class="h-16 bg-jamea-primary text-white flex items-center justify-between px-6 shadow-md relative z-10">
-                <button class="mobile-menu-btn">☰</button>
+                <button class="mobile-menu-btn" aria-controls="sidebar" aria-expanded="false">☰</button>
                 <div class="flex items-center space-x-6">
                     <div class="flex items-center space-x-2 text-white/80">
                         <i class="fa-solid fa-house text-sm"></i><span class="text-sm font-medium">HOME</span>
