@@ -114,6 +114,9 @@
         let allRequests = [];
         let userIsAdmin = false;
         let adminRole = "";
+        // admin dashboard UI state
+        let currentAdminGroupBy = 'class';
+        let currentAdminFilter = 'all';
 
         const loginView = document.getElementById('login-view');
         const appView = document.getElementById('app-view');
@@ -205,6 +208,35 @@
             const s = alloc.Section || '';
             const g = alloc.Gender || '';
             return `${c}${s}${g}`.trim();
+        }
+
+        // Determine request category robustly from backend fields
+        function getRequestCategory(req) {
+            // normalize all relevant fields into a single string for keyword checks
+            const fields = ['Request Type', 'Request Type ', 'Request Action', 'requestAction', 'RequestAction', 'Requested Change', 'RequestedChange', 'Request', 'Type', 'RequestType'];
+            let joined = '';
+            for (const f of fields) {
+                if (req[f]) joined += ' ' + String(req[f]);
+            }
+            // also inspect common keys directly
+            if (req['Request Type'] === 'extra' || String(req['Request Type']).toLowerCase().includes('extra')) return 'extra';
+            const s = joined.toLowerCase();
+            if (s.includes('full') || s.includes('full_release') || s.includes('give off') || s.includes('giveoff') || s.includes('release all') || s.includes('release')) {
+                // if it mentions "extra" too, prefer extra
+                if (s.includes('extra')) return 'extra';
+                // prefer full if keyword full or full_release
+                if (s.includes('full') || s.includes('full_release') || s.includes('release all') || s.includes('give off')) return 'full';
+            }
+            if (s.includes('partial') || s.includes('drop') || s.includes('partial_release') || s.includes('give off') || s.includes('drop')) return 'partial';
+            if (s.includes('extra') || s.includes('add') || s.includes('add periods') || s.includes('requested extra')) return 'extra';
+            // fallback: if Request Type is 'release' and Requested Change is numeric less than current => partial
+            if (String(req['Request Type']).toLowerCase() === 'release') {
+                const change = parseInt(req['Requested Change'], 10);
+                if (!isNaN(change) && change > 0) return 'partial';
+                // if no explicit change, assume full
+                return 'full';
+            }
+            return 'partial';
         }
 
         function filterRequestsByAdminRole(requests, email, role) {
@@ -474,30 +506,39 @@
         window.closeExtraPeriodsModal = () => document.getElementById('extra-periods-modal').classList.add('hidden');
 
         window.renderAdminDashboard = (groupBy) => {
+            // keep current state
+            currentAdminGroupBy = groupBy || currentAdminGroupBy;
             const container = document.getElementById('admin-dashboard-content');
             container.innerHTML = '';
             const btnClassTab = 'px-4 py-2 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300';
             const btnClassActive = 'px-4 py-2 bg-jamea-primary text-white rounded-md text-sm shadow-sm';
-            document.getElementById('tab-class').className = groupBy === 'class' ? btnClassActive : btnClassTab;
-            document.getElementById('tab-teacher').className = groupBy === 'teacher' ? btnClassActive : btnClassTab;
-            document.getElementById('tab-book').className = groupBy === 'book' ? btnClassActive : btnClassTab;
-            if (!allRequests.length) {
+            document.getElementById('tab-class').className = currentAdminGroupBy === 'class' ? btnClassActive : btnClassTab;
+            document.getElementById('tab-teacher').className = currentAdminGroupBy === 'teacher' ? btnClassActive : btnClassTab;
+            document.getElementById('tab-book').className = currentAdminGroupBy === 'book' ? btnClassActive : btnClassTab;
+
+            // Apply filter based on currentAdminFilter
+            const filteredRequests = (allRequests || []).filter(req => {
+                if (!currentAdminFilter || currentAdminFilter === 'all') return true;
+                return getRequestCategory(req) === currentAdminFilter;
+            });
+
+            if (!filteredRequests.length) {
                 container.innerHTML = `<div class="p-8 text-center text-gray-500 bg-white rounded-lg border">No pending requests found for your scope.</div>`;
                 return;
             }
             const grouped = {};
-            allRequests.forEach(req => {
+            filteredRequests.forEach(req => {
                 let key;
-                if (groupBy === 'teacher') key = req['Email'];
-                else if (groupBy === 'book') key = `${req['Formatted Class']} - ${req['Book Name']}`;
+                if (currentAdminGroupBy === 'teacher') key = req['Email'];
+                else if (currentAdminGroupBy === 'book') key = `${req['Formatted Class']} - ${req['Book Name']}`;
                 else key = `Class ${req['Formatted Class']}`;
                 if (!grouped[key]) grouped[key] = [];
                 grouped[key].push(req);
             });
             for (const [key, requests] of Object.entries(grouped)) {
                 let icon = 'fa-users-class';
-                if (groupBy === 'teacher') icon = 'fa-user-tie';
-                if (groupBy === 'book') icon = 'fa-book';
+                if (currentAdminGroupBy === 'teacher') icon = 'fa-user-tie';
+                if (currentAdminGroupBy === 'book') icon = 'fa-book';
                 let html = `
                 <div class="mb-6 bg-white border rounded-lg shadow-sm overflow-hidden">
                     <div class="bg-gray-100 px-4 py-3 border-b border-gray-200 font-semibold text-jamea-dark flex justify-between items-center">
@@ -507,14 +548,14 @@
                     <div class="divide-y divide-gray-100">
                 `;
                 requests.forEach(req => {
-                    const isExtra = req['Request Type'] === 'extra';
+                    const isExtra = (req['Request Type'] === 'extra') || (getRequestCategory(req) === 'extra');
                     const badgeColor = isExtra ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
-                    const changeText = isExtra ? `Requested ${esc(req['Requested Change'])} Extra` : `Requested Drop ${esc(req['Requested Change'])}`;
+                    const changeText = isExtra ? `Requested ${esc(req['Requested Change'] || req['RequestedChange'] || 'Extra')} Extra` : `Requested Drop ${esc(req['Requested Change'] || req['RequestedChange'] || '')}`;
                     const dateObj = new Date(req['Timestamp']);
                     const dateStr = isNaN(dateObj.getTime()) ? '' : dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
                     let mainLabel = '';
-                    if (groupBy === 'teacher') mainLabel = `${esc(req['Formatted Class'])} • ${esc(req['Book Name'])}`;
-                    else if (groupBy === 'book') mainLabel = esc(req['Email']);
+                    if (currentAdminGroupBy === 'teacher') mainLabel = `${esc(req['Formatted Class'])} • ${esc(req['Book Name'])}`;
+                    else if (currentAdminGroupBy === 'book') mainLabel = esc(req['Email']);
                     else mainLabel = `<span class="font-bold text-jamea-primary">${esc(req['Book Name'])}</span> <span class="text-gray-400">by</span> ${esc(req['Email'])}`;
                     html += `
                         <div class="p-4 hover:bg-gray-50 flex flex-col md:flex-row justify-between md:items-center">
@@ -532,6 +573,12 @@
                 html += `</div></div>`;
                 container.innerHTML += html;
             }
+        };
+
+        // allow changing the admin filter
+        window.setAdminFilter = (val) => {
+            currentAdminFilter = val || 'all';
+            renderAdminDashboard(currentAdminGroupBy);
         };
 
         window.openAddAdminModal = () => {
@@ -652,7 +699,7 @@
                 </div>
                 <!-- Logout button moved here so it's directly beneath user info -->
                 <div>
-                    <button onclick="handleLogout()" class="w-full flex items-center justify-center space-x-2 text-white/90 hover:text-white transition-colors text-sm bg-jamea-sidebar/20 px-3 py-2 rounded-md">
+                    <button onclick="handleLogout()" class="w-full flex items-center justify-center space-x-2 text-white/90 hover:text-white transition-colors text-sm bg-jamea-sidebar/20 px-3 py-2 rou[...]">
                         <i class="fa-solid fa-sign-out-alt"></i>
                         <span>Log Out</span>
                     </button>
@@ -667,7 +714,7 @@
 
                 <div id="admin-nav-menu" class="hidden mt-6">
                     <div class="text-[10px] uppercase tracking-wider text-jamea-gold font-bold px-3 mb-2 mt-4">Administration</div>
-                    <a href="#" id="nav-admin" onclick="switchView('admin')" class="flex items-center space-x-3 px-3 py-2 text-white/70 hover:bg-white/5 hover:text-white rounded-md transition-col[...]
+                    <a href="#" id="nav-admin" onclick="switchView('admin')" class="flex items-center space-x-3 px-3 py-2 text-white/70 hover:bg-white/5 hover:text-white rounded-md transition-col[...]">
                         <i class="fa-solid fa-chart-bar w-5 text-center"></i>
                         <span class="text-sm font-medium">Requests Dashboard</span>
                     </a>
@@ -722,15 +769,26 @@
             <div id="admin-view" class="hidden flex-1 overflow-auto custom-scrollbar p-6">
                 <div class="flex justify-between items-center mb-6">
                     <h2 class="text-2xl font-bold text-gray-800">Requests Dashboard</h2>
-                    <button id="add-admin-btn" onclick="openAddAdminModal()" class="hidden text-sm border border-jamea-primary text-jamea-primary px-3 py-1.5 rounded hover:bg-jamea-primary hover:[...]
+                    <button id="add-admin-btn" onclick="openAddAdminModal()" class="hidden text-sm border border-jamea-primary text-jamea-primary px-3 py-1.5 rounded hover:bg-jamea-primary hover:[...]">
                         + Manage Admins
                     </button>
                 </div>
 
-                <div class="flex space-x-2 mb-6 border-b pb-2">
-                    <button id="tab-class" onclick="renderAdminDashboard('class')" class="px-4 py-2 bg-jamea-primary text-white rounded-md text-sm shadow-sm">Group by Class</button>
-                    <button id="tab-teacher" onclick="renderAdminDashboard('teacher')" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300">Group by Teacher</button>
-                    <button id="tab-book" onclick="renderAdminDashboard('book')" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300">Group by Book/Class</button>
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-6 border-b pb-2">
+                    <div class="flex space-x-2">
+                        <button id="tab-class" onclick="renderAdminDashboard('class')" class="px-4 py-2 bg-jamea-primary text-white rounded-md text-sm shadow-sm">Group by Class</button>
+                        <button id="tab-teacher" onclick="renderAdminDashboard('teacher')" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300">Group by Teacher</button>
+                        <button id="tab-book" onclick="renderAdminDashboard('book')" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300">Group by Book/Class</button>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <label for="admin-filter-select" class="text-sm text-gray-600">Filter:</label>
+                        <select id="admin-filter-select" onchange="setAdminFilter(this.value)" class="text-sm border rounded-md px-2 py-1 bg-white">
+                            <option value="all">All Requests</option>
+                            <option value="partial">Partial Release</option>
+                            <option value="full">Full Release</option>
+                            <option value="extra">Extra Periods</option>
+                        </select>
+                    </div>
                 </div>
 
                 <div id="admin-dashboard-content"></div>
