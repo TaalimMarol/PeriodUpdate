@@ -114,7 +114,6 @@
         let allRequests = [];
         let userIsAdmin = false;
         let adminRole = "";
-        // admin dashboard UI state
         let currentAdminGroupBy = 'class';
         let currentAdminFilter = 'all';
 
@@ -132,18 +131,14 @@
         const isMobile = () => window.matchMedia('(max-width: 768px)').matches;
         const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'' :'&#39;'}[c]));
 
-        /* Mobile sidebar helper functions: show/hide with overlay */
         function showMobileSidebar() {
             const sidebar = document.querySelector('.sidebar');
             const overlay = document.getElementById('mobile-overlay');
             if (!sidebar || !overlay) return;
             sidebar.classList.add('active');
             overlay.classList.remove('hidden');
-            // Allow the browser to apply hidden removal before activating opacity
             setTimeout(() => overlay.classList.add('active'), 10);
-            // Prevent body scroll while open
             document.body.style.overflow = 'hidden';
-            // update aria
             const menuBtn = document.querySelector('.mobile-menu-btn');
             if (menuBtn) menuBtn.setAttribute('aria-expanded', 'true');
         }
@@ -153,14 +148,12 @@
             if (sidebar) sidebar.classList.remove('active');
             if (overlay) {
                 overlay.classList.remove('active');
-                // After transition, hide the overlay to remove it from tab order
                 setTimeout(() => overlay.classList.add('hidden'), 300);
             }
             document.body.style.overflow = '';
             const menuBtn = document.querySelector('.mobile-menu-btn');
             if (menuBtn) menuBtn.setAttribute('aria-expanded', 'false');
         }
-        // expose functions to global scope so inline handlers can call them
         window.showMobileSidebar = showMobileSidebar;
         window.hideMobileSidebar = hideMobileSidebar;
         window.toggleMobileSidebar = () => {
@@ -171,7 +164,6 @@
         };
 
         function closeSidebarOnMobile() {
-            // kept for backward compatibility with other calls
             if (isMobile()) hideMobileSidebar();
         }
 
@@ -210,41 +202,31 @@
             return `${c}${s}${g}`.trim();
         }
 
-        // Determine request category robustly from backend fields
         function getRequestCategory(req) {
-            // normalize all relevant fields into a single string for keyword checks
             const fields = ['Request Type', 'Request Type ', 'Request Action', 'requestAction', 'RequestAction', 'Requested Change', 'RequestedChange', 'Request', 'Type', 'RequestType'];
             let joined = '';
             for (const f of fields) {
                 if (req[f]) joined += ' ' + String(req[f]);
             }
-            // also inspect common keys directly
             if (req['Request Type'] === 'extra' || String(req['Request Type']).toLowerCase().includes('extra')) return 'extra';
             const s = joined.toLowerCase();
             if (s.includes('full') || s.includes('full_release') || s.includes('give off') || s.includes('giveoff') || s.includes('release all') || s.includes('release')) {
-                // if it mentions "extra" too, prefer extra
                 if (s.includes('extra')) return 'extra';
-                // prefer full if keyword full or full_release
                 if (s.includes('full') || s.includes('full_release') || s.includes('release all') || s.includes('give off')) return 'full';
             }
             if (s.includes('partial') || s.includes('drop') || s.includes('partial_release') || s.includes('give off') || s.includes('drop')) return 'partial';
             if (s.includes('extra') || s.includes('add') || s.includes('add periods') || s.includes('requested extra')) return 'extra';
-            // fallback: if Request Type is 'release' and Requested Change is numeric less than current => partial
             if (String(req['Request Type']).toLowerCase() === 'release') {
                 const change = parseInt(req['Requested Change'], 10);
                 if (!isNaN(change) && change > 0) return 'partial';
-                // if no explicit change, assume full
                 return 'full';
             }
             return 'partial';
         }
 
         function filterRequestsByAdminRole(requests, email, role) {
-            // SuperAdmin sees everything
             if (role === 'SuperAdmin') return requests;
             const parsedEmail = String(email || '').toLowerCase();
-
-            // If requests explicitly include an admin/assigned field, prefer filtering by that
             const adminFieldCandidates = ['Admin Email', 'Assigned Admin', 'Admin', 'AdminEmail'];
             const hasAdminField = requests.some(r => adminFieldCandidates.some(f => r.hasOwnProperty(f)));
             if (hasAdminField) {
@@ -254,11 +236,9 @@
                     }
                     return false;
                 });
-                // If we found matches for this admin, return them; otherwise fall through to other heuristics
                 if (matched.length) return matched;
             }
 
-            // Legacy mapping by specific admin email addresses (keeps existing behavior for known accounts)
             const legacyFiltered = requests.filter(r => {
                 const classNum = parseInt(r['Raw Class Number'], 10);
                 const gender = r['Raw Gender'];
@@ -277,8 +257,6 @@
                 return false;
             });
             if (legacyFiltered.length) return legacyFiltered;
-
-            // Fallback: if we couldn't determine a narrower set, return all requests so admins can see pending items
             return requests;
         }
 
@@ -314,7 +292,6 @@
                     allocations = Array.isArray(result.allocations) ? result.allocations : [];
                     userIsAdmin = !!result.isAdmin;
                     adminRole = result.adminRole || '';
-                    // keep the raw requests from backend; apply client-side filtering based on admin role when rendering
                     const rawRequests = Array.isArray(result.requests) ? result.requests : [];
 
                     if (userIsAdmin) {
@@ -385,7 +362,6 @@
                 adminView.classList.remove('hidden');
                 if (navAdmin) navAdmin.classList.add('nav-active');
                 navTeacher.classList.remove('nav-active');
-                // when entering admin view, ensure the dashboard uses up-to-date filtering
                 allRequests = filterRequestsByAdminRole(allRequests, currentUser.email, adminRole);
                 renderAdminDashboard('class');
                 closeSidebarIfMobile();
@@ -499,8 +475,15 @@
                 option.textContent = `${formatClassName(alloc)} - ${alloc.BookName || ''}`;
                 selectEl.appendChild(option);
             });
+
             const reasonField = document.getElementById('extra-reason');
+            reasonField.innerHTML = `
+                <option value="">Select a reason...</option>
+                <option value="Risalah Alif Shafawi Ikhtebaar">Risalah Alif Shafawi Ikhtebaar</option>
+                <option value="Other">Other</option>
+            `;
             reasonField.value = 'Risalah Alif Shafawi Ikhtebaar';
+
             document.getElementById('extra-periods-modal').classList.remove('hidden');
             focusFirstInput('extra-periods-modal');
             closeSidebarIfMobile();
@@ -508,7 +491,6 @@
         window.closeExtraPeriodsModal = () => document.getElementById('extra-periods-modal').classList.add('hidden');
 
         window.renderAdminDashboard = (groupBy) => {
-            // keep current state
             currentAdminGroupBy = groupBy || currentAdminGroupBy;
             const container = document.getElementById('admin-dashboard-content');
             container.innerHTML = '';
@@ -518,7 +500,6 @@
             document.getElementById('tab-teacher').className = currentAdminGroupBy === 'teacher' ? btnClassActive : btnClassTab;
             document.getElementById('tab-book').className = currentAdminGroupBy === 'book' ? btnClassActive : btnClassTab;
 
-            // Apply filter based on currentAdminFilter
             const filteredRequests = (allRequests || []).filter(req => {
                 if (!currentAdminFilter || currentAdminFilter === 'all') return true;
                 return getRequestCategory(req) === currentAdminFilter;
@@ -577,7 +558,6 @@
             }
         };
 
-        // allow changing the admin filter
         window.setAdminFilter = (val) => {
             currentAdminFilter = val || 'all';
             renderAdminDashboard(currentAdminGroupBy);
@@ -620,34 +600,27 @@
             }
         });
 
-        // Attach stable event listeners (avoid relying on inline onclick attributes)
-        // Runs after DOM parsed because module scripts are deferred
         const _attachMobileListeners = () => {
             const overlayEl = document.getElementById('mobile-overlay');
             const menuBtn = document.querySelector('.mobile-menu-btn');
             if (overlayEl) {
                 overlayEl.addEventListener('click', hideMobileSidebar);
-                // ensure ARIA and keyboard support
                 overlayEl.setAttribute('role', 'button');
                 overlayEl.setAttribute('aria-label', 'Close sidebar');
                 overlayEl.tabIndex = -1;
             }
             if (menuBtn) {
-                // set ARIA attributes and attach listener
                 menuBtn.setAttribute('type', 'button');
                 menuBtn.setAttribute('aria-controls', 'sidebar');
                 menuBtn.setAttribute('aria-expanded', 'false');
-                // keep inline handler as fallback but also attach listener
                 menuBtn.addEventListener('click', (e) => { e.preventDefault(); toggleMobileSidebar(); });
             }
 
-            // close on Escape key
             document.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape') hideMobileSidebar();
             });
         };
 
-        // ensure listeners are attached after DOM is fully ready
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', _attachMobileListeners);
         } else {
@@ -655,7 +628,6 @@
         }
     </script>
 
-    <!-- LOGIN SCREEN -->
     <div id="login-view" class="w-full h-full flex flex-col items-center justify-center bg-jamea-bg relative">
         <div class="absolute top-0 left-0 w-full h-2 bg-jamea-gold"></div>
         <div class="absolute bottom-0 w-full h-32 bg-jamea-primary opacity-5 rounded-t-full -mb-16"></div>
@@ -679,7 +651,6 @@
         </div>
     </div>
 
-    <!-- MAIN APP SCREEN -->
     <div id="app-view" class="hidden w-full h-full flex flex-col md:flex-row bg-[#f5f5f5]">
         <aside class="sidebar w-full md:w-64 bg-jamea-sidebar text-white flex flex-col shadow-xl z-20" id="sidebar">
             <div class="h-16 flex items-center px-4 bg-jamea-dark border-b border-white/10">
@@ -699,7 +670,6 @@
                         <div id="user-email-display" class="text-xs text-white/60 truncate">email@example.com</div>
                     </div>
                 </div>
-                <!-- Logout button moved here so it's directly beneath user info -->
                 <div>
                     <button onclick="handleLogout()" class="w-full flex items-center justify-center space-x-2 text-white/90 hover:text-white transition-colors text-sm bg-jamea-sidebar/20 px-3 py-2 rounded-md">
                         <i class="fa-solid fa-sign-out-alt"></i>
@@ -722,11 +692,8 @@
                     </a>
                 </div>
             </nav>
-
-            <!-- bottom logout removed (moved above) -->
         </aside>
 
-        <!-- Mobile overlay sits behind the sidebar but above main content -->
         <div id="mobile-overlay" class="mobile-overlay hidden"></div>
 
         <main class="main-content flex-1 flex flex-col h-full overflow-hidden">
@@ -843,7 +810,11 @@
                 </div>
                 <div class="mb-6">
                     <label class="block text-sm font-medium mb-1">Reason</label>
-                    <textarea id="extra-reason" rows="2" class="w-full border rounded-md px-3 py-2 text-sm">Risalah Alif Shafawi Ikhtebaar</textarea>
+                    <select id="extra-reason" class="w-full border rounded-md px-3 py-2 bg-white">
+                        <option value="">Select a reason...</option>
+                        <option value="Risalah Alif Shafawi Ikhtebaar">Risalah Alif Shafawi Ikhtebaar</option>
+                        <option value="Other">Other</option>
+                    </select>
                 </div>
                 <div class="flex justify-end space-x-3">
                     <button onclick="closeExtraPeriodsModal()" class="px-4 py-2 bg-gray-100 rounded-md">Cancel</button>
