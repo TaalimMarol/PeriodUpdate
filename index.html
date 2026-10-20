@@ -50,7 +50,6 @@
             cursor: pointer;
             margin-right: 15px;
         }
-        /* Mobile off-canvas sidebar and overlay */
         @media (max-width: 768px) {
             .mobile-menu-btn { display: inline-block; }
             .sidebar {
@@ -477,12 +476,8 @@
             });
 
             const reasonField = document.getElementById('extra-reason');
-            reasonField.innerHTML = `
-                <option value="">Select a reason...</option>
-                <option value="Risalah Alif Shafawi Ikhtebaar">Risalah Alif Shafawi Ikhtebaar</option>
-                <option value="Other">Other</option>
-            `;
             reasonField.value = 'Risalah Alif Shafawi Ikhtebaar';
+            reasonField.placeholder = 'Type reason here...';
 
             document.getElementById('extra-periods-modal').classList.remove('hidden');
             focusFirstInput('extra-periods-modal');
@@ -810,11 +805,7 @@
                 </div>
                 <div class="mb-6">
                     <label class="block text-sm font-medium mb-1">Reason</label>
-                    <select id="extra-reason" class="w-full border rounded-md px-3 py-2 bg-white">
-                        <option value="">Select a reason...</option>
-                        <option value="Risalah Alif Shafawi Ikhtebaar">Risalah Alif Shafawi Ikhtebaar</option>
-                        <option value="Other">Other</option>
-                    </select>
+                    <textarea id="extra-reason" rows="3" class="w-full border rounded-md px-3 py-2 text-sm" placeholder="Type your reason here...">Risalah Alif Shafawi Ikhtebaar</textarea>
                 </div>
                 <div class="flex justify-end space-x-3">
                     <button onclick="closeExtraPeriodsModal()" class="px-4 py-2 bg-gray-100 rounded-md">Cancel</button>
