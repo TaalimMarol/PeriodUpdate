@@ -130,7 +130,7 @@
 
         const provider = new GoogleAuthProvider();
         const isMobile = () => window.matchMedia('(max-width: 768px)').matches;
-        const esc = (value) => String(value ?? '').replace(/[&<>\"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\'' :'&#39;'}[c]));
+        const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'' :'&#39;'}[c]));
 
         /* Mobile sidebar helper functions: show/hide with overlay */
         function showMobileSidebar() {
@@ -499,6 +499,8 @@
                 option.textContent = `${formatClassName(alloc)} - ${alloc.BookName || ''}`;
                 selectEl.appendChild(option);
             });
+            const reasonField = document.getElementById('extra-reason');
+            reasonField.value = 'Risalah Alif Shafawi Ikhtebaar';
             document.getElementById('extra-periods-modal').classList.remove('hidden');
             focusFirstInput('extra-periods-modal');
             closeSidebarIfMobile();
@@ -665,7 +667,7 @@
             <h1 class="text-3xl font-bold text-gray-800 mb-2 font-serif" style="color: #5a1324;">HESAS BADAL </h1>
             <p class="text-gray-500 mb-8">Periods Allocation & Modification System</p>
 
-            <button onclick="handleGoogleLogin()" class="w-full flex items-center justify-center space-x-3 bg-white border border-gray-300 text-gray-700 px-4 py-3 rounded-md hover:bg-gray-50 tran[...]
+            <button onclick="handleGoogleLogin()" class="w-full flex items-center justify-center space-x-3 bg-white border border-gray-300 text-gray-700 px-4 py-3 rounded-md hover:bg-gray-50 transition-colors shadow-sm">
                 <svg class="w-5 h-5" viewBox="0 0 24 24">
                     <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                     <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
@@ -699,7 +701,7 @@
                 </div>
                 <!-- Logout button moved here so it's directly beneath user info -->
                 <div>
-                    <button onclick="handleLogout()" class="w-full flex items-center justify-center space-x-2 text-white/90 hover:text-white transition-colors text-sm bg-jamea-sidebar/20 px-3 py-2 rou[...]">
+                    <button onclick="handleLogout()" class="w-full flex items-center justify-center space-x-2 text-white/90 hover:text-white transition-colors text-sm bg-jamea-sidebar/20 px-3 py-2 rounded-md">
                         <i class="fa-solid fa-sign-out-alt"></i>
                         <span>Log Out</span>
                     </button>
@@ -714,7 +716,7 @@
 
                 <div id="admin-nav-menu" class="hidden mt-6">
                     <div class="text-[10px] uppercase tracking-wider text-jamea-gold font-bold px-3 mb-2 mt-4">Administration</div>
-                    <a href="#" id="nav-admin" onclick="switchView('admin')" class="flex items-center space-x-3 px-3 py-2 text-white/70 hover:bg-white/5 hover:text-white rounded-md transition-col[...]">
+                    <a href="#" id="nav-admin" onclick="switchView('admin')" class="flex items-center space-x-3 px-3 py-2 text-white/70 hover:bg-white/5 hover:text-white rounded-md transition-colors">
                         <i class="fa-solid fa-chart-bar w-5 text-center"></i>
                         <span class="text-sm font-medium">Requests Dashboard</span>
                     </a>
@@ -769,7 +771,7 @@
             <div id="admin-view" class="hidden flex-1 overflow-auto custom-scrollbar p-6">
                 <div class="flex justify-between items-center mb-6">
                     <h2 class="text-2xl font-bold text-gray-800">Requests Dashboard</h2>
-                    <button id="add-admin-btn" onclick="openAddAdminModal()" class="hidden text-sm border border-jamea-primary text-jamea-primary px-3 py-1.5 rounded hover:bg-jamea-primary hover:[...]">
+                    <button id="add-admin-btn" onclick="openAddAdminModal()" class="hidden text-sm border border-jamea-primary text-jamea-primary px-3 py-1.5 rounded hover:bg-jamea-primary hover:text-white transition-colors">
                         + Manage Admins
                     </button>
                 </div>
@@ -841,7 +843,7 @@
                 </div>
                 <div class="mb-6">
                     <label class="block text-sm font-medium mb-1">Reason</label>
-                    <textarea id="extra-reason" rows="2" class="w-full border rounded-md px-3 py-2 text-sm"></textarea>
+                    <textarea id="extra-reason" rows="2" class="w-full border rounded-md px-3 py-2 text-sm">Risalah Alif Shafawi Ikhtebaar</textarea>
                 </div>
                 <div class="flex justify-end space-x-3">
                     <button onclick="closeExtraPeriodsModal()" class="px-4 py-2 bg-gray-100 rounded-md">Cancel</button>
